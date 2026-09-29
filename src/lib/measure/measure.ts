@@ -111,14 +111,8 @@ function cached<T>(map: Map<string, T>, key: string, make: () => T) {
 }
 
 /** "12.35 mm", "≈ 0.12 mm", "135.00°", "314.16 mm²". Under half a display unit shows as 0, never "-0.00". */
-export function formatValue(value: number, unit: Unit, decimals: number, exact: boolean): string {
-	const shown = Math.abs(value) < 0.5 * 10 ** -decimals ? 0 : value;
-	return `${exact ? '' : '≈ '}${shown.toFixed(decimals)}${unit === '°' ? '°' : ` ${unit}`}`;
-}
-
-export function formatRow(row: Row, decimals: number): string {
-	return formatValue(row.value, row.unit, decimals, row.exact);
-}
+// Formatting lives apart from the math, so the panel can use it without loading three.js.
+export { formatRow, formatValue } from './units';
 
 function centre(at: Vector3, out: Measurement) {
 	out.rows.push(row('centreX', at.x), row('centreY', at.y), row('centreZ', at.z));

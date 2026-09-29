@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import type { ModelIndex } from '../src/lib/models/types.ts';
 import { ARCHETYPE, CONVENTION } from '../src/lib/state/archetype.ts';
 
 const dir = 'dist-napplet';
@@ -19,6 +20,14 @@ describe.skipIf(!built)('napplet artefact', () => {
 		expect(readdirSync(dir).sort()).toEqual(['.nip5a-manifest.json', 'index.html']);
 		// The latest GLB of each model rides inside; a shell loads it as one srcdoc string.
 		expect(html.byteLength).toBeLessThan(12_000_000);
+	});
+
+	it('carries the latest model of each kind and its measurement file', () => {
+		const index: ModelIndex = JSON.parse(readFileSync('static/models/index.json', 'utf8'));
+		for (const entry of Object.values(index.models)) {
+			const latest = entry.versions.find((v) => v.version === entry.latest)!;
+			for (const file of [latest.glb, latest.measure]) if (file) expect(text).toContain(file.sha256);
+		}
 	});
 
 	// The markup alone: script and style bodies are dropped, their opening tags kept.
