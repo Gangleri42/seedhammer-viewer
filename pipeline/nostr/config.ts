@@ -57,7 +57,8 @@ const MIME: Record<string, string> = {
 	glb: 'model/gltf-binary',
 	gltf: 'model/gltf+json',
 	step: 'model/step',
-	zip: 'application/zip'
+	zip: 'application/zip',
+	gz: 'application/gzip'
 };
 
 export const mimeOf = (path: string) => MIME[path.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';

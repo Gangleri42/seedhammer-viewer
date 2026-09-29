@@ -8,6 +8,8 @@ export type ModelVersion = {
 	version: number;
 	glb: ModelFile;
 	step: ModelFile;
+	/** The exact geometry behind the GLB, for measuring (src/lib/measure/format.ts). Versions without it cannot be measured. */
+	measure?: ModelFile;
 	/** The same mesh without meshopt compression, for hosts that block WebAssembly. Optional. */
 	plain?: ModelFile;
 	triangles: number;
