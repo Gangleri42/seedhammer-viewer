@@ -26,10 +26,16 @@ const CACHE = '.cache/models';
 const git = (...args: string[]) => execFileSync('git', ['-C', HARDWARE, ...args], { encoding: 'utf8', maxBuffer: 1 << 26 }).trim();
 
 // Any change to the conversion invalidates every cached build, and so does any change to the privacy rules or the
-// private terms: a cached version was only checked against the rules of its day.
+// private terms: a cached version was only checked against the rules of its day. The libraries that simplify, encode
+// and compress count too, since a new release can change the output.
+const SOURCES = [
+	'pipeline/build-model.ts', 'pipeline/geometry.ts', 'pipeline/ids.ts', 'pipeline/measure.ts', 'pipeline/models.json',
+	'src/lib/measure/format.ts', 'export/step/step_to_manifest.py', 'scripts/privacy-rules.mjs'
+];
+const LIBRARIES = ['meshoptimizer', '@gltf-transform/core', '@gltf-transform/extensions', '@gltf-transform/functions', 'fflate', 'three', 'three-mesh-bvh'];
 const pipelineHash = createHash('sha256')
-	.update(['pipeline/build-model.ts', 'pipeline/geometry.ts', 'pipeline/ids.ts', 'pipeline/models.json', 'export/step/step_to_manifest.py', 'scripts/privacy-rules.mjs']
-		.map((f) => readFileSync(f, 'utf8')).join('\0'))
+	.update(SOURCES.map((f) => readFileSync(f, 'utf8')).join('\0'))
+	.update(LIBRARIES.map((name) => `${name}@${JSON.parse(readFileSync(`node_modules/${name}/package.json`, 'utf8')).version}`).join('\n'))
 	.update(privateTerms().join('\n'))
 	.digest('hex')
 	.slice(0, 12);
@@ -61,6 +67,10 @@ async function build(key: string, config: ModelConfig, source: Source) {
 	execFileSync(CONVERT[0], [...CONVERT.slice(1), 'export/step/step_to_manifest.py', `${dir}/${name}`, `${dir}/export`, '--version', String(source.version)], { stdio: 'inherit' });
 	const result = await buildModel(`${dir}/export`, config);
 	writeFileSync(`${dir}/model.glb`, result.glb);
+	writeFileSync(`${dir}/measure.json.gz`, result.measure);
+	const m = result.measureStats;
+	console.log(`  measure: ${m.solids} solids, ${m.analytic} exact faces${m.demoted ? ` (${m.demoted} left free-form)` : ''}, ` +
+		`tolerance ${m.tol[0]}-${m.tol[1]} mm, ${(result.measure.byteLength / 1e3).toFixed(0)} kB gzipped${m.mirrored ? `, ${m.mirrored} mirrored placements` : ''}`);
 
 	// A fixed file time keeps the zip byte-identical across builds.
 	const epoch = new Date('2020-01-01T00:00:00Z');
@@ -95,12 +105,15 @@ for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 		const built = await build(key, config, source);
 		const glb = `${key}/v${source.version}.glb`;
 		const step = `${key}/${built.name}.zip`;
+		const measure = `${key}/v${source.version}.measure.json.gz`;
 		copyFileSync(`${built.dir}/model.glb`, `${OUT}/${glb}`);
 		copyFileSync(`${built.dir}/step.zip`, `${OUT}/${step}`);
+		copyFileSync(`${built.dir}/measure.json.gz`, `${OUT}/${measure}`);
 		entries.push({
 			version: source.version,
 			glb: fileEntry(glb),
 			step: fileEntry(step),
+			measure: fileEntry(measure),
 			triangles: built.triangles,
 			bodies: built.bodies,
 			built: source.date,

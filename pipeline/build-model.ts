@@ -4,11 +4,13 @@
 // scale and rotation, which the viewer resets so its world frame equals the CAD frame.
 import { readFileSync } from 'node:fs';
 import { Document, NodeIO, Primitive, type Material, type Mesh, type Node, type TypedArray } from '@gltf-transform/core';
-import { EXTMeshoptCompression } from '@gltf-transform/extensions';
-import { meshopt } from '@gltf-transform/functions';
+import { EXTMeshoptCompression, KHRMeshQuantization } from '@gltf-transform/extensions';
+import { quantize, reorder } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
-import { creaseNormals, weld, type Geometry } from './geometry.ts';
+import { creaseNormals, splitByFace, weld, type Geometry } from './geometry.ts';
 import { partId } from './ids.ts';
+import { sha256 } from './manifest.ts';
+import { buildMeasure, type MeasureStats, type RawMeasure, type SolidMesh } from './measure.ts';
 import { assertPublic } from './privacy.ts';
 
 type Manifest = {
@@ -38,6 +40,7 @@ export type ModelConfig = {
 };
 type Finish = { kind: 'metal' | 'glass'; roughness?: number };
 type Group = { appearance: string | null; geometry: Geometry };
+type Solid = { groups: Group[]; mesh: SolidMesh };
 
 const FASTENER = /\b(ISO|DIN)\s?\d|schraube|mutter|screw|\bnut\b|washer|scheibe|\bM\d+(\.\d+)?x\d+/i;
 const srgbToLinear = (c: number) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -63,8 +66,55 @@ function multiply(a: Mat4, b: Mat4): Mat4 {
 	for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) out[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
 	return out;
 }
+/** +1 for a rotation, -1 for a mirror; throws on anything that scales or shears, which would change measured lengths. */
+function handedness(m: Mat4, what: string) {
+	const col = (c: number) => [m[c * 4], m[c * 4 + 1], m[c * 4 + 2]];
+	const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+	for (let i = 0; i < 3; i++) {
+		for (let j = 0; j < 3; j++) {
+			if (Math.abs(dot(col(i), col(j)) - (i === j ? 1 : 0)) > 1e-6) throw new Error(`${what}: its placement scales or shears`);
+		}
+	}
+	const [x, y, z] = [col(0), col(1), col(2)];
+	return Math.sign(x[0] * (y[1] * z[2] - y[2] * z[1]) - x[1] * (y[0] * z[2] - y[2] * z[0]) + x[2] * (y[0] * z[1] - y[1] * z[0]));
+}
+/** The vertices the triangles use, renumbered from 0, with their face ids. */
+function compact(positions: Float32Array, indices: number[], faces: Uint16Array) {
+	const remap = new Map<number, number>();
+	const out: number[] = [];
+	const outFaces: number[] = [];
+	const outIndices = new Uint32Array(indices.length);
+	indices.forEach((v, i) => {
+		let j = remap.get(v);
+		if (j === undefined) {
+			remap.set(v, (j = outFaces.length));
+			out.push(positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]);
+			outFaces.push(faces[v]);
+		}
+		outIndices[i] = j;
+	});
+	return { positions: new Float32Array(out), indices: outIndices, faces: Uint16Array.from(outFaces) };
+}
 
-export type BuildResult = { glb: Uint8Array; version: number; doc: string; bodies: number; trianglesIn: number; trianglesOut: number };
+/**
+ * What meshopt({ level: 'medium', quantizePosition: 16 }) does, except that its quantize pattern would also turn
+ * _FACEID into normalized values wherever a solid's face ids all fit in [-1, 1].
+ */
+export function compression() {
+	return [reorder({ encoder: MeshoptEncoder, target: 'size' }), quantize({ quantizePosition: 16, pattern: /^(?!_FACEID$)/, patternTargets: /.*/ })];
+}
+
+export type BuildResult = {
+	glb: Uint8Array;
+	/** The gzipped measurement file (src/lib/measure/format.ts). */
+	measure: Uint8Array;
+	version: number;
+	doc: string;
+	bodies: number;
+	trianglesIn: number;
+	trianglesOut: number;
+	measureStats: MeasureStats & { json: number; mirrored: number };
+};
 
 /** Builds the GLB for the export in `src`. Throws if the result would carry private data. */
 export async function buildModel(src: string, config: ModelConfig): Promise<BuildResult> {
@@ -78,30 +128,55 @@ export async function buildModel(src: string, config: ModelConfig): Promise<Buil
 	for (const entry of config.materials ?? []) for (const part of entry.parts) finishes.set(part, entry);
 	const finishOf = (idx: number) => finishes.get(manifest.meshes[idx].body) ?? finishes.get(manifest.meshes[idx].component);
 
-	/** The body's triangles per colour group, each welded, simplified and given crease normals. */
-	function bodyGroups(idx: number): Group[] {
+	/**
+	 * The solid's triangles: welded, split per B-rep face and simplified once, then cut into its colour groups and given
+	 * crease normals. Face borders are seams to the simplifier, so every triangle stays on one face and neighbouring
+	 * faces (and colours) keep meeting without cracks.
+	 */
+	function solidOf(idx: number): Solid {
 		const buf = readFileSync(`${src}/m_${String(idx).padStart(3, '0')}.bin`);
-		const [nodes, tris] = new Uint32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + 8));
-		const raw = new Float32Array(buf.buffer.slice(buf.byteOffset + 8, buf.byteOffset + 8 + nodes * 12));
-		const indices = new Uint32Array(buf.buffer.slice(buf.byteOffset + 8 + nodes * 12, buf.byteOffset + 8 + nodes * 12 + tris * 12));
+		let at = buf.byteOffset;
+		const take = (bytes: number) => buf.buffer.slice(at, (at += bytes));
+		const [nodes, tris] = new Uint32Array(take(8));
+		const raw = new Float32Array(take(nodes * 12));
+		const indices = new Uint32Array(take(tris * 12));
+		const triangleFaces = new Uint32Array(take(tris * 4));
 		const positions = scale === 1 ? raw : raw.map((v) => v * scale);
 		stats.trianglesIn += tris;
 		const entry = manifest.meshes[idx];
 		const error = config.simplifyErrorByComponent?.[entry.component] ?? config.simplifyError;
 		const layout = entry.groups ?? [[null, tris] as [string | null, number]];
-		// Seams between colour groups stay locked so neighbouring groups keep meeting without cracks.
-		const flags: ('ErrorAbsolute' | 'LockBorder')[] = layout.length > 1 ? ['ErrorAbsolute', 'LockBorder'] : ['ErrorAbsolute'];
-		const groups: Group[] = [];
+
+		// Faces carry their colour, so each face belongs to one colour group.
+		const groupOf = new Map<number, number>();
 		let start = 0;
-		for (const [appearance, count] of layout) {
-			const part = indices.subarray(start * 3, (start + count) * 3);
+		layout.forEach(([, count], g) => {
+			for (let t = start; t < start + count; t++) groupOf.set(triangleFaces[t], g);
 			start += count;
-			if (!count) continue;
-			const welded = weld(positions, part);
-			const [simplified] = MeshoptSimplifier.simplify(welded.indices, welded.positions, 3, 3, error, flags);
-			if (simplified.length) groups.push({ appearance, geometry: creaseNormals(welded.positions, simplified) });
+		});
+
+		const welded = weld(positions, indices);
+		const split = splitByFace(welded.positions, welded.indices, triangleFaces);
+		// Never 'Permissive': that is the one mode that may collapse a vertex across a seam onto another face.
+		const [simplified] = MeshoptSimplifier.simplify(split.indices, split.positions, 3, 3, error, ['ErrorAbsolute']);
+		for (let i = 0; i < simplified.length; i += 3) {
+			const face = split.faces[simplified[i]];
+			if (split.faces[simplified[i + 1]] !== face || split.faces[simplified[i + 2]] !== face) {
+				throw new Error(`${entry.body}: a simplified triangle spans two faces`);
+			}
 		}
-		return groups;
+		const groups: Group[] = [];
+		layout.forEach(([appearance], g) => {
+			const picked: number[] = [];
+			for (let i = 0; i < simplified.length; i += 3) {
+				if (groupOf.get(split.faces[simplified[i]]) === g) picked.push(simplified[i], simplified[i + 1], simplified[i + 2]);
+			}
+			if (!picked.length) return;
+			const part = compact(split.positions, picked, split.faces);
+			groups.push({ appearance, geometry: creaseNormals(part.positions, part.indices, part.faces) });
+		});
+		const original = { positions, indices, faces: triangleFaces };
+		return { groups, mesh: { positions: split.positions, indices: simplified, faces: split.faces, original, error } };
 	}
 
 	const doc = new Document();
@@ -109,7 +184,7 @@ export async function buildModel(src: string, config: ModelConfig): Promise<Buil
 	const buffer = doc.createBuffer();
 	const edgeMaterial = doc.createMaterial('edges').setBaseColorFactor([0, 0, 0, 1]).setExtras({ kind: 'edges' });
 	const materials = new Map<string, Material>();
-	const geometries = new Map<number, Group[]>();
+	const geometries = new Map<number, Solid>();
 	const meshes = new Map<string, Mesh>();
 
 	function makeMaterial(name: string | null, finish?: Finish): Material {
@@ -148,19 +223,21 @@ export async function buildModel(src: string, config: ModelConfig): Promise<Buil
 	function meshFor(idx: number, appearance: string | null): Mesh | null {
 		const key = `${idx}|${appearance}`;
 		if (meshes.has(key)) return meshes.get(key)!;
-		let groups = geometries.get(idx);
-		if (!groups) geometries.set(idx, (groups = bodyGroups(idx)));
-		if (!groups.length) return null;
+		let solid = geometries.get(idx);
+		if (!solid) geometries.set(idx, (solid = solidOf(idx)));
+		if (!solid.groups.length) return null;
 		const finish = finishOf(idx);
 		const mesh = doc.createMesh(manifest.meshes[idx].body);
-		for (const { appearance: own, geometry } of groups) {
+		for (const { appearance: own, geometry } of solid.groups) {
 			// Faces in the body's own colour take the instance colour and the configured finish. With a metal finish, faces
 			// with a colour of their own keep it (a chip's black body stays black); glass is one tint over the whole body.
 			const material = !own || finish?.kind === 'glass' ? materialFor(appearance, finish) : materialFor(own);
 			const position = accessor('VEC3', geometry.positions);
+			// The B-rep face of each vertex, for the Measure tool: an integer, so quantization must leave it alone.
+			const faceIds = doc.createAccessor().setType('SCALAR').setArray(geometry.faces).setBuffer(buffer);
 			mesh.addPrimitive(
 				doc.createPrimitive().setAttribute('POSITION', position).setAttribute('NORMAL', accessor('VEC3', geometry.normals))
-					.setIndices(accessor('SCALAR', geometry.indices)).setMaterial(material)
+					.setAttribute('_FACEID', faceIds).setIndices(accessor('SCALAR', geometry.indices)).setMaterial(material)
 			);
 			if (geometry.edges.length) {
 				mesh.addPrimitive(
@@ -181,8 +258,10 @@ export async function buildModel(src: string, config: ModelConfig): Promise<Buil
 
 	const nodes = new Map<string | null, Node>([[null, root]]);
 	const world = new Map<string, Mat4>();
+	let mirrored = 0;
 	for (const occ of manifest.occurrences) {
 		const w = toColumnMajor(occ.matrix, scale);
+		if (handedness(w, occ.path) < 0) mirrored++;
 		world.set(occ.path, w);
 		const local = occ.parent ? multiply(invertRigid(world.get(occ.parent)!), w) : w;
 		const fastener = occ.path in manifest.fastener_partners || FASTENER.test(occ.component);
@@ -196,18 +275,38 @@ export async function buildModel(src: string, config: ModelConfig): Promise<Buil
 		const mesh = meshFor(body.mesh, body.appearance);
 		if (!mesh) continue;
 		const path = `${body.occ ?? ''}/${body.body}`;
-		nodes.get(body.occ)!.addChild(doc.createNode(body.body).setMesh(mesh).setExtras({ id: partId(path), name: body.body, body: true }));
+		// `solid` names the body's entry in the measurement file.
+		const extras = { id: partId(path), name: body.body, body: true, solid: body.mesh };
+		nodes.get(body.occ)!.addChild(doc.createNode(body.body).setMesh(mesh).setExtras(extras));
 		stats.bodies++;
 	}
-	for (const groups of geometries.values()) for (const g of groups) stats.trianglesOut += g.geometry.indices.length / 3;
+	for (const solid of geometries.values()) for (const g of solid.groups) stats.trianglesOut += g.geometry.indices.length / 3;
 
-	await doc.transform(meshopt({ encoder: MeshoptEncoder, level: 'medium', quantizePosition: 16 }));
-	const io = new NodeIO().registerExtensions([EXTMeshoptCompression]).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
+	await doc.transform(...compression());
+	const io = new NodeIO()
+		.registerExtensions([EXTMeshoptCompression, KHRMeshQuantization])
+		.registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
 	const glb = await io.writeBinary(doc);
 
 	// Nothing private may ship in the GLB's JSON (names, extras); the binary chunk is geometry.
 	const jsonLength = new DataView(glb.buffer, glb.byteOffset + 12, 4).getUint32(0, true);
 	assertPublic('GLB JSON', new TextDecoder().decode(glb.subarray(20, 20 + jsonLength)));
 
-	return { glb, version: manifest.version, doc: manifest.doc, bodies: stats.bodies, trianglesIn: stats.trianglesIn, trianglesOut: stats.trianglesOut };
+	const raw: RawMeasure = JSON.parse(readFileSync(`${src}/measure.json`, 'utf8'));
+	const solids = raw.solids.map((_, idx) => {
+		const solid = geometries.get(idx);
+		return solid?.groups.length ? solid.mesh : null;
+	});
+	const measure = buildMeasure(raw, solids, sha256(glb));
+
+	return {
+		glb,
+		measure: measure.bytes,
+		version: manifest.version,
+		doc: manifest.doc,
+		bodies: stats.bodies,
+		trianglesIn: stats.trianglesIn,
+		trianglesOut: stats.trianglesOut,
+		measureStats: { ...measure.stats, json: measure.json, mirrored }
+	};
 }
