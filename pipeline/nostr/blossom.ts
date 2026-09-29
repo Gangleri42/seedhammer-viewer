@@ -121,6 +121,18 @@ export async function mirror(server: string, sourceUrl: string, auth: Event): Pr
 	}
 }
 
+/** A blob's bytes from one server, or null when it is missing, unreachable or does not hash to what was asked for. */
+export async function download(server: string, sha256: string, ext?: string): Promise<Uint8Array | null> {
+	try {
+		const response = await attempt(() => fetch(blobUrl(server, sha256, ext), { signal: AbortSignal.timeout(TIMEOUT * 5), redirect: 'follow' }));
+		if (!response.ok) return null;
+		const data = new Uint8Array(await response.arrayBuffer());
+		return createHash('sha256').update(data).digest('hex') === sha256 ? data : null;
+	} catch {
+		return null;
+	}
+}
+
 /** Downloads the file and checks its hash: what a gateway or shell will do. */
 export async function verify(server: string, entry: FileEntry): Promise<Result> {
 	try {

@@ -18,7 +18,8 @@ import { parseArgs } from 'node:util';
 import type { Event, EventTemplate } from 'nostr-tools/core';
 import * as nip19 from 'nostr-tools/nip19';
 import { verifyEvent } from 'nostr-tools/pure';
-import { blobUrl, extOf, head, mirror, preflight, upload, verify } from './nostr/blossom.ts';
+import { blobUrl, download, extOf, head, mirror, preflight, upload, verify } from './nostr/blossom.ts';
+import { chunksNeeded } from './nostr/carry.ts';
 import { KIND, LOOKUP_RELAYS, mimeOf, readConfig } from './nostr/config.ts';
 import { appendDeploy, lastDeploy, previousImmutable, readLedger, type Deploy } from './nostr/ledger.ts';
 import { mergeRelayList, mergeServerList } from './nostr/lists.ts';
@@ -104,11 +105,32 @@ const current = {
 };
 const listed = (event: Event | null) => new Map(event?.tags.filter((t) => t[0] === 'path').map((t) => [t[1], t[2]]) ?? []);
 
-// A returning browser may hold the previous index.html for an hour: its hashed chunks stay in the manifest for one
-// more deploy. They come from the manifest on the relays, or from the ledger when no relay has one.
-const previousChunks: { path: string; sha256: string; bytes: number }[] = current.site
-	? [...listed(current.site)].filter(([path]) => path.startsWith('/_app/immutable/')).map(([path, sha256]) => ({ path, sha256, bytes: 0 }))
-	: previousImmutable(ledger);
+// Blobs fetched from our server, by sha256: previous files read below, and bytes for re-uploads later.
+const fetched = new Map<string, Uint8Array>();
+const fromOwnServer = async (sha256: string, path: string) => {
+	const cached = fetched.get(sha256);
+	if (cached) return cached;
+	const data = await download(ownServer, sha256, extOf(path));
+	if (data) fetched.set(sha256, data);
+	return data;
+};
+
+// A returning browser may hold the previous index.html for an hour, so the hashed files it loads stay in the manifest
+// for one more deploy. They are found by following that index.html's imports through the manifest on the relays;
+// files it carried from older deploys drop out. Without a manifest on the relays, the ledger stands in, and when the
+// old index.html cannot be read, every hashed path of the old manifest stays once more.
+const previousChunks: { path: string; sha256: string; bytes: number }[] = await (async () => {
+	if (!current.site) return previousImmutable(ledger);
+	const files = listed(current.site);
+	const read = async (path: string) => {
+		const data = await fromOwnServer(files.get(path)!, path);
+		return data ? new TextDecoder().decode(data) : null;
+	};
+	const needed = await chunksNeeded(files, read);
+	const paths = needed.size ? [...needed] : [...files.keys()].filter((path) => path.startsWith('/_app/immutable/'));
+	if (!needed.size) log(`could not read the previous index.html from ${ownServer}; keeping all ${paths.length} hashed paths of the previous manifest`);
+	return paths.map((path) => ({ path, sha256: files.get(path)!, bytes: 0 }));
+})();
 const previous: FileEntry[] = previousChunks.filter((p) => !site.some((s) => s.path === p.path)).map((p) => ({ ...p, type: mimeOf(p.path) }));
 const napplet = opts.skipNapplet ? [] : collectFiles('dist-napplet', ['/.nip5a-manifest.json']);
 if (!opts.skipNapplet && (napplet.length !== 1 || napplet[0].path !== '/index.html')) fail('dist-napplet must hold exactly /index.html; run npm run build:napplet');
@@ -228,22 +250,8 @@ if (servers.length - 1 < opts.minPublic) {
 log('\nplacing files');
 // The bytes to upload: the local file, or for a chunk carried over from the previous deploy, a verified copy
 // from our own server.
-const fetched = new Map<string, Uint8Array>();
-const bytesOf = async (entry: FileEntry): Promise<Uint8Array | null> => {
-	if (entry.file) return readFileSync(entry.file);
-	const cached = fetched.get(entry.sha256);
-	if (cached) return cached;
-	try {
-		const response = await fetch(blobUrl(ownServer, entry.sha256, extOf(entry.path)), { signal: AbortSignal.timeout(300_000) });
-		if (!response.ok) return null;
-		const data = new Uint8Array(await response.arrayBuffer());
-		if (createHash('sha256').update(data).digest('hex') !== entry.sha256) return null;
-		fetched.set(entry.sha256, data);
-		return data;
-	} catch {
-		return null;
-	}
-};
+const bytesOf = async (entry: FileEntry): Promise<Uint8Array | null> =>
+	entry.file ? readFileSync(entry.file) : fromOwnServer(entry.sha256, entry.path);
 const place = async (server: string, entry: FileEntry) => {
 	if ((await head(server, entry.sha256)).status === 200) return { ok: true, status: 200, reason: 'present' };
 	if (server !== ownServer) {
