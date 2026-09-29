@@ -92,6 +92,17 @@ every file on several Blossom servers, and with the source on ngit (NIP-34). Git
 The site is served by any nsite gateway at `https://<pubkey in base36><site id>.<gateway>/`. `npm run publish:nostr`
 is the maintainer's publisher and refuses to run outside its publishing environment.
 
+### Open the napplet
+
+The napplet's address follows the latest version:
+
+```
+naddr1qvzqqqyf8ypzq9y7qlnpnmkaxtj826xnr9lrdcns7j6mqjxx7eft74h7jpn8m0ufqyt8wumn8ghj7un9d3shjtn4dee82eeww3jkx6qqp9eksttkd9jhwetjm3azc8
+```
+
+Paste it into a napplet host, such as [Kehto Paja](https://kehto.github.io/web/paja/) in a browser or
+[Myco](https://github.com/Origami74/myco) on Android.
+
 ### Verify, without any key
 
 ```sh
