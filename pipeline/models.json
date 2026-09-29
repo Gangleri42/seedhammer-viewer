@@ -1,0 +1,153 @@
+{
+	"seed": {
+		"title": "Seed",
+		"folder": "seed",
+		"simplifyError": 0.01,
+		"materials": [
+			{
+				"appearance": "Stahl - satiniert",
+				"kind": "metal",
+				"roughness": 0.26,
+				"parts": [
+					"LCM_HX0242S008 (16)",
+					"LCM_HX0242S008 (8)",
+					"NFC_springs_BW0041CG"
+				]
+			},
+			{
+				"appearance": "Seed - Lens glass",
+				"kind": "glass",
+				"roughness": 0.0,
+				"parts": [
+					"CAM_OV7251_640x480 (4)"
+				]
+			},
+			{
+				"appearance": "Chrom - Schwarz",
+				"kind": "metal",
+				"roughness": 0.0,
+				"parts": [
+					"Senkkopfschraube mit Innensechsrund ISO 14581 - M2x5 Aluminium Einfach",
+					"Skeleton"
+				]
+			},
+			{
+				"appearance": "Glas (klar)",
+				"kind": "glass",
+				"roughness": 0.0,
+				"parts": [
+					"LCM_HX0242S008 (2)"
+				]
+			},
+			{
+				"appearance": "(sapphire camera window)",
+				"kind": "glass",
+				"roughness": 0.0,
+				"parts": [
+					"CAM_glass_sapphire_0p4"
+				]
+			}
+		]
+	},
+	"hammer": {
+		"title": "Hammer",
+		"folder": "hammer",
+		"simplifyError": 0.02,
+		"simplifyErrorByComponent": {
+			"hammer_coil": 0.1,
+			"plunger_spring": 0.05
+		},
+		"materials": [
+			{
+				"appearance": "Stahl - satiniert",
+				"kind": "metal",
+				"roughness": 0.26,
+				"parts": [
+					"CP_Radial_D130mm_P500mm",
+					"clamp_rod_M4",
+					"hammer_core_tube",
+					"hammer_housing_mid",
+					"hammer_housing_top",
+					"hammer_needle",
+					"plunger_armature",
+					"plunger_rod",
+					"plunger_spring",
+					"plunger_washer_lower",
+					"plunger_washer_upper",
+					"x_rods",
+					"y_rods"
+				]
+			},
+			{
+				"appearance": "Aluminium - eloxiert, glänzend (Grau)",
+				"kind": "metal",
+				"roughness": 0.12,
+				"parts": [
+					"gt2_16t_idler_3mm",
+					"gt2_16t_pulley_5mm",
+					"x_carriage_plate (1)",
+					"x_carriage_plate (4)",
+					"x_carriage_plate (5)"
+				]
+			},
+			{
+				"appearance": "Messing - poliert",
+				"kind": "metal",
+				"roughness": 0.08,
+				"parts": [
+					"clamp_lever_hub"
+				]
+			},
+			{
+				"appearance": "Edelstahl - gebürstet, gerade, lang",
+				"kind": "metal",
+				"roughness": 0.55,
+				"parts": [
+					"plate"
+				]
+			},
+			{
+				"appearance": "Aluminium - eloxiert, glänzend (Blau)",
+				"kind": "metal",
+				"roughness": 0.12,
+				"parts": [
+					"plate_jaw"
+				]
+			},
+			{
+				"appearance": "Aluminium - eloxiert, rau (Rot)",
+				"kind": "metal",
+				"roughness": 0.55,
+				"parts": [
+					"hammer_nose"
+				]
+			},
+			{
+				"appearance": "Bronze - Patina",
+				"kind": "metal",
+				"roughness": 0.55,
+				"parts": [
+					"x_carriage_plate (2)",
+					"x_carriage_plate (3)"
+				]
+			},
+			{
+				"appearance": "Beschichtung - brüniert",
+				"kind": "metal",
+				"roughness": 0.37,
+				"parts": [
+					"Gewindestift DIN 914 - M5 x 8 Stahl 4.6 Einfach",
+					"Innensechskantschraube DIN 912 - M3 x 0.5 x 12 Stahl 4.6 Einfach",
+					"Innensechskantschraube DIN 912 - M3 x 0.5 x 16 Stahl 4.6 Einfach",
+					"Innensechskantschraube DIN 912 - M3 x 0.5 x 20 Stahl 4.6 Einfach",
+					"Innensechskantschraube DIN 912 - M3 x 0.5 x 25 Stahl 4.6 Einfach",
+					"Sechskantmutter DIN 6924 - M3 x 0.5 Stahl 6 Einfach",
+					"Sechskantmutter DIN 6924 - M4 x 0.7 Stahl 6 Einfach",
+					"Sechskantmutter DIN 6924 - M5 x 0.8 Stahl 6 Einfach",
+					"Senkkopfschraube mit Innensechskant ISO 10642 - M4 x 20 Stahl 8.8 Einfach",
+					"Senkkopfschraube mit Innensechskant ISO 10642 - M5 x 30 Stahl 8.8 Einfach"
+				]
+			}
+		]
+	}
+}
