@@ -20,6 +20,9 @@ export class Section {
 
 	/** Registers every surface and edge material, and adds a cap mesh next to each body. */
 	attach(model: THREE.Object3D) {
+		// The previous model's cap materials go with it; keeping them would keep every model ever loaded alive.
+		for (const material of this.#capMaterials.values()) material.dispose();
+		this.#capMaterials.clear();
 		this.#caps = [];
 		this.#materials = [];
 		const seen = new Set<THREE.Material>();

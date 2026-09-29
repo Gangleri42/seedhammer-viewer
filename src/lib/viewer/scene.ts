@@ -80,7 +80,8 @@ export class Viewer {
 		this.renderer.toneMapping = THREE.NeutralToneMapping;
 		this.renderer.localClippingEnabled = true;
 		this.renderer.shadowMap.enabled = true;
-		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+		// PCF blurs by the light's shadow.radius; three.js dropped PCFSoftShadowMap and warned on every load.
+		this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
 		const pmrem = new THREE.PMREMGenerator(this.renderer);
 		this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -147,12 +148,19 @@ export class Viewer {
 		this.requestRender();
 	}
 
-	/** Replaces the model with a GLB's bytes and returns its part index. */
-	async loadBuffer(buffer: ArrayBuffer) {
+	/**
+	 * Replaces the model with a GLB's bytes and returns its part index. When `wanted` turns false while the bytes are
+	 * parsed (a newer request came in), the parsed model is thrown away, the scene is left alone and null comes back.
+	 */
+	async loadBuffer(buffer: ArrayBuffer, wanted: () => boolean = () => true) {
 		const gltf = await this.#loader.parseAsync(buffer, '');
+		if (!wanted()) {
+			this.#release(gltf.scene);
+			return null;
+		}
 		if (this.model) {
 			this.scene.remove(this.model);
-			this.model.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+			this.#release(this.model, this.#highlight.values());
 		}
 		// The GLB root carries glTF's metres and Y-up; drop it so node coordinates are Fusion's again.
 		const root = gltf.scene.children[0];
@@ -202,6 +210,17 @@ export class Viewer {
 		this.#placeGroundAndLight();
 		this.fit('iso');
 		return this.parts;
+	}
+
+	/** Frees a model that leaves the scene: its geometries, its materials (section caps included) and any extras. */
+	#release(model: THREE.Object3D, extra: Iterable<THREE.Material> = []) {
+		const materials = new Set<THREE.Material>(extra);
+		model.traverse((object) => {
+			const mesh = object as THREE.Mesh;
+			mesh.geometry?.dispose();
+			if (mesh.material) for (const material of [mesh.material].flat()) materials.add(material);
+		});
+		for (const material of materials) material.dispose();
 	}
 
 	#placeGroundAndLight() {
