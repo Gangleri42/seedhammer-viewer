@@ -46,7 +46,7 @@ async function fromShell(file: ModelFile, servers: string[], onProgress?: (fract
 
 export type NappletModelOptions = {
 	index: ModelIndex;
-	/** GLB bytes shipped in the artefact, base64, by sha256. */
+	/** Model files shipped in the artefact (each model's latest GLB and measurement file), base64, by sha256. */
 	inline: Record<string, string>;
 	/** Blossom servers that hold every published file, most reliable first. */
 	servers: string[];
@@ -56,7 +56,7 @@ export function nappletModels({ index, inline, servers }: NappletModelOptions): 
 	const hosts = [...new Set([...(index.servers ?? []), ...servers])];
 	return {
 		index: async () => index,
-		async glb(file, onProgress) {
+		async bytes(file, onProgress) {
 			const shipped = inline[file.sha256];
 			if (shipped) {
 				onProgress?.(1);

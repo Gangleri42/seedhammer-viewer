@@ -79,6 +79,11 @@ export function applyVisibility(index: PartIndex, hidden: Set<string>, isolated:
 	}
 }
 
+/** The part the tree shows for a body: its occurrence when the body is that occurrence's only one. */
+export function shownPart(body: Part): Part {
+	return body.parent && !body.parent.children.includes(body) ? body.parent : body;
+}
+
 /** True when the part and all its ancestors are switched on. */
 export function isShown(part: Part): boolean {
 	for (let p: Part | null = part; p; p = p.parent) if (!p.object.visible) return false;

@@ -6,8 +6,8 @@ import type { ThemeSource } from '$lib/theme.svelte';
 
 export interface ModelSource {
 	index(): Promise<ModelIndex>;
-	/** The bytes of a GLB, verified where the transport does not do it. `onProgress(null)` means the total is unknown. */
-	glb(file: ModelFile, onProgress?: (fraction: number | null) => void): Promise<ArrayBuffer>;
+	/** A model file's bytes, verified where the transport does not do it. `onProgress(null)` means the total is unknown. */
+	bytes(file: ModelFile, onProgress?: (fraction: number | null) => void): Promise<ArrayBuffer>;
 }
 
 export type ShareLink = {

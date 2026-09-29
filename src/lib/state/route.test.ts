@@ -6,6 +6,7 @@ describe('route', () => {
 	it('recognises the hash grammar and nothing else', () => {
 		expect(isRoute('#/hammer')).toBe(true);
 		expect(isRoute('#/hammer@41?hide=a3,b0&cut=x:12.5!,z:-3&cam=1,2,3;4,5,6;2&edges=0')).toBe(true);
+		expect(isRoute('#/hammer@41?m=k3x9a1.f12.q7,0f2kq7.c40')).toBe(true);
 		expect(isRoute('#nonsense')).toBe(false);
 		expect(isRoute('#/hammer?x=<script>')).toBe(false);
 		expect(isRoute('#/hammer?a=b#c')).toBe(false);

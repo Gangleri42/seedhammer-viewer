@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
+import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree, type MeshBVH } from 'three-mesh-bvh';
 import type { Camera, Cut } from '$lib/state/hash';
 import { Explode } from './explode';
 import { indexParts, isShown, type Part, type PartIndex } from './parts';
@@ -26,8 +26,33 @@ const decoderReady: Promise<boolean> = MeshoptDecoder.supported
 	: Promise.resolve(false);
 export const meshoptAvailable = () => decoderReady;
 
-export type Palette = { background: string; edges: string; accent: string; ground: string };
+export type Palette = { background: string; edges: string; accent: string; ground: string; measure: string };
 export type NamedView = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
+
+/** A point on a shown, uncut surface: the mesh, its body part, and the first corner of the triangle hit. */
+export type SurfaceHit = { mesh: THREE.Mesh; part: Part; point: THREE.Vector3; distance: number; vertex: number };
+
+/**
+ * Something that takes over the canvas's clicks and draws over the model, such as Measure. While it is active, a click
+ * goes to it instead of selecting a part; it runs before every frame and after every render.
+ */
+export interface CanvasTool {
+	readonly active: boolean;
+	/** The mouse or pen moved with no button down; null when it left the canvas or a drag began. */
+	hover(event: PointerEvent | null): void;
+	/** A click or tap that did not drag. */
+	click(event: PointerEvent): void;
+	/** Before a frame; returns true to have it rendered. `moving` is true while the camera moves. */
+	frame(moving: boolean): boolean;
+	/** After a render, with the camera as drawn. */
+	rendered(): void;
+	/** The model is about to be replaced. */
+	detach(): void;
+	setPalette(palette: Palette): void;
+	dispose(): void;
+}
+
+type Target = { mesh: THREE.Mesh; part: Part; sphere: THREE.Sphere; inverse: THREE.Matrix4; mirrored: boolean; capped: boolean };
 
 const VIEWS: Record<NamedView, [number, number, number]> = {
 	iso: [1, -1, 0.75],
@@ -71,8 +96,13 @@ export class Viewer {
 	#highlight = new Map<THREE.Material, THREE.MeshStandardMaterial>();
 	#highlighted: { mesh: THREE.Mesh; material: THREE.Material }[] = [];
 	#accent = new THREE.Color('#e2561b');
-	#pointerDown: { x: number; y: number } | null = null;
-	#inset = 0;
+	#pointers = new Map<number, { x: number; y: number }>();
+	#multiTouch = false;
+	#inset = { left: 0, right: 0 };
+	#tool: CanvasTool | null = null;
+	#targets: Target[] | null = null;
+	#raycaster = new THREE.Raycaster();
+	#projected = new THREE.Vector3();
 
 	constructor(canvas: HTMLCanvasElement) {
 		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -113,13 +143,29 @@ export class Viewer {
 		// Also on release, in case damping takes long to settle (slow GPUs).
 		this.controls.addEventListener('end', () => this.onCameraChange());
 
-		// A click (not a drag) picks a part.
-		canvas.addEventListener('pointerdown', (e) => (this.#pointerDown = { x: e.clientX, y: e.clientY }));
-		canvas.addEventListener('pointerup', (e) => {
-			const down = this.#pointerDown;
-			this.#pointerDown = null;
-			if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5) this.onPick(this.pick(e.clientX, e.clientY));
+		// A click is a primary button or one finger that barely moved; a pinch never ends in one. It picks a part, or goes
+		// to the active tool.
+		canvas.addEventListener('pointerdown', (e) => {
+			this.#pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+			if (this.#pointers.size > 1) this.#multiTouch = true;
+			this.#tool?.hover(null);
 		});
+		const release = (e: PointerEvent, cancelled: boolean) => {
+			const down = this.#pointers.get(e.pointerId);
+			this.#pointers.delete(e.pointerId);
+			const multiTouch = this.#multiTouch;
+			if (!this.#pointers.size) this.#multiTouch = false;
+			if (cancelled || !down || multiTouch || e.button !== 0) return;
+			if (Math.hypot(e.clientX - down.x, e.clientY - down.y) >= (e.pointerType === 'touch' ? 10 : 5)) return;
+			if (this.#tool?.active) this.#tool.click(e);
+			else this.onPick(this.pick(e.clientX, e.clientY));
+		};
+		canvas.addEventListener('pointerup', (e) => release(e, false));
+		canvas.addEventListener('pointercancel', (e) => release(e, true));
+		canvas.addEventListener('pointermove', (e) => {
+			if (!e.buttons && e.pointerType !== 'touch' && this.#tool?.active) this.#tool.hover(e);
+		});
+		canvas.addEventListener('pointerleave', () => this.#tool?.hover(null));
 
 		this.#resize = new ResizeObserver(() => this.#fitCanvas());
 		this.#resize.observe(canvas);
@@ -128,14 +174,23 @@ export class Viewer {
 		// Render on demand: damping keeps controls.update() returning true until the motion settles.
 		this.renderer.setAnimationLoop(() => {
 			const moving = this.controls.update();
+			if (this.#tool?.active && this.#tool.frame(moving)) this.#dirty = true;
 			if (!moving && !this.#dirty) return;
 			this.#dirty = false;
 			this.renderer.render(this.scene, this.camera);
+			if (this.#tool?.active) this.#tool.rendered();
 		});
 	}
 
 	requestRender() {
 		this.#dirty = true;
+	}
+
+	/** Hands the canvas's clicks and overlay to a tool (null gives them back). */
+	setTool(tool: CanvasTool | null) {
+		if (this.#tool && this.#tool !== tool) this.#tool.dispose();
+		this.#tool = tool;
+		this.requestRender();
 	}
 
 	setPalette(palette: Palette) {
@@ -145,6 +200,7 @@ export class Viewer {
 		for (const material of this.#edges) material.color.set(palette.edges);
 		this.section.setHatch(palette.edges);
 		this.#ground.material.color.set(palette.ground);
+		this.#tool?.setPalette(palette);
 		this.requestRender();
 	}
 
@@ -159,9 +215,11 @@ export class Viewer {
 			return null;
 		}
 		if (this.model) {
+			this.#tool?.detach();
 			this.scene.remove(this.model);
 			this.#release(this.model, this.#highlight.values());
 		}
+		this.#targets = null;
 		// The GLB root carries glTF's metres and Y-up; drop it so node coordinates are Fusion's again.
 		const root = gltf.scene.children[0];
 		root.position.set(0, 0, 0);
@@ -256,7 +314,8 @@ export class Viewer {
 			? new THREE.Vector3(...VIEWS[view]).normalize()
 			: this.camera.position.clone().sub(this.controls.target).normalize();
 		const canvas = this.renderer.domElement;
-		const aspect = Math.max(0.2, (canvas.clientWidth - this.#inset) / Math.max(1, canvas.clientHeight));
+		const free = canvas.clientWidth - this.#inset.left - this.#inset.right;
+		const aspect = Math.max(0.2, free / Math.max(1, canvas.clientHeight));
 		const halfV = THREE.MathUtils.degToRad(this.perspective.fov / 2);
 		const halfH = Math.atan(Math.tan(halfV) * aspect);
 		const distance = sphere.radius / Math.sin(Math.min(halfV, halfH));
@@ -272,10 +331,10 @@ export class Viewer {
 		this.onCameraChange();
 	}
 
-	/** Pixels on the left covered by a panel: the view centre moves right by half of it. */
-	setInset(pixels: number) {
-		if (pixels === this.#inset) return;
-		this.#inset = pixels;
+	/** Pixels covered by panels on the left and right: the view centre moves to the middle of what is free. */
+	setInset(left: number, right = 0) {
+		if (left === this.#inset.left && right === this.#inset.right) return;
+		this.#inset = { left, right };
 		this.#fitCanvas();
 	}
 
@@ -331,6 +390,7 @@ export class Viewer {
 
 	setExplode(factor: number) {
 		this.explode.set(factor);
+		this.#targets = null;
 		this.requestRender();
 	}
 
@@ -356,18 +416,82 @@ export class Viewer {
 
 	/** The visible, uncut part under a screen point: the occurrence that owns the body. */
 	pick(clientX: number, clientY: number): Part | null {
-		if (!this.model || !this.parts) return null;
+		const { x, y } = this.canvasPoint({ clientX, clientY });
+		const part = this.surfaceAt(x, y)?.part;
+		return part ? (part.body && part.parent ? part.parent : part) : null;
+	}
+
+	/** A pointer position in canvas pixels. */
+	canvasPoint(e: { clientX: number; clientY: number }) {
 		const rect = this.renderer.domElement.getBoundingClientRect();
-		const pointer = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-		const raycaster = new THREE.Raycaster();
-		raycaster.setFromCamera(pointer, this.camera);
-		for (const hit of raycaster.intersectObject(this.model, true)) {
-			if (hit.object.userData.cap) continue;
-			const part = this.parts.byObject.get(hit.object);
-			if (!part || !isShown(part) || !this.section.keeps(hit.point)) continue;
-			return part.body && part.parent ? part.parent : part;
+		return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+	}
+
+	/** The world ray through a canvas pixel. */
+	rayAt(x: number, y: number, target = new THREE.Ray()) {
+		const canvas = this.renderer.domElement;
+		const pointer = new THREE.Vector2((x / Math.max(1, canvas.clientWidth)) * 2 - 1, -(y / Math.max(1, canvas.clientHeight)) * 2 + 1);
+		this.#raycaster.setFromCamera(pointer, this.camera);
+		return target.copy(this.#raycaster.ray);
+	}
+
+	/** A world point in canvas pixels, or null when it lies behind the camera. */
+	toScreen(point: THREE.Vector3, target = new THREE.Vector2()) {
+		const p = this.#projected.copy(point).project(this.camera);
+		if (p.z > 1 || p.z < -1) return null;
+		const canvas = this.renderer.domElement;
+		return target.set(((p.x + 1) / 2) * canvas.clientWidth, ((1 - p.y) / 2) * canvas.clientHeight);
+	}
+
+	/**
+	 * The shown surface under a canvas pixel. Hits in cut-away space are skipped; the nearest remaining one counts if
+	 * it faces the camera. One facing away means the ray entered a cut solid, whose hatched cap covers the pixel, so
+	 * nothing is picked there; without a cap (glass), the ray goes on.
+	 */
+	surfaceAt(x: number, y: number): SurfaceHit | null {
+		if (!this.model || !this.parts) return null;
+		const ray = this.rayAt(x, y);
+		const local = new THREE.Ray();
+		const hits: (SurfaceHit & { facing: boolean; capped: boolean })[] = [];
+		for (const target of this.#pickTargets()) {
+			if (!ray.intersectsSphere(target.sphere) || !isShown(target.part)) continue;
+			local.copy(ray).applyMatrix4(target.inverse);
+			for (const hit of (target.mesh.geometry.boundsTree as MeshBVH).raycast(local, THREE.DoubleSide)) {
+				const point = hit.point.clone().applyMatrix4(target.mesh.matrixWorld);
+				if (!this.section.keeps(point)) continue;
+				const facing = hit.face!.normal.dot(local.direction) < 0 !== target.mirrored;
+				hits.push({ mesh: target.mesh, part: target.part, point, distance: point.distanceTo(ray.origin), vertex: hit.face!.a, facing, capped: target.capped });
+			}
+		}
+		hits.sort((a, b) => a.distance - b.distance);
+		const cut = this.section.planes.length > 0;
+		for (const { facing, capped, ...hit } of hits) {
+			if (facing) return hit;
+			if (cut && capped) return null;
 		}
 		return null;
+	}
+
+	/** Every pickable mesh with its world bounds, rebuilt when the model or the explode changes. */
+	#pickTargets(): Target[] {
+		if (this.#targets) return this.#targets;
+		this.model?.updateMatrixWorld(true);
+		const targets: Target[] = [];
+		this.model?.traverse((object) => {
+			const mesh = object as THREE.Mesh;
+			const part = this.parts?.byObject.get(mesh);
+			if (!mesh.isMesh || mesh.userData.cap || !mesh.geometry.boundsTree || !part) return;
+			if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+			targets.push({
+				mesh,
+				part,
+				sphere: mesh.geometry.boundingSphere!.clone().applyMatrix4(mesh.matrixWorld),
+				inverse: mesh.matrixWorld.clone().invert(),
+				mirrored: mesh.matrixWorld.determinant() < 0,
+				capped: this.section.hasCap(mesh)
+			});
+		});
+		return (this.#targets = targets);
 	}
 
 	#frustum(halfHeight?: number) {
@@ -380,8 +504,9 @@ export class Viewer {
 		this.perspective.far = this.radius * 40;
 		this.perspective.updateProjectionMatrix();
 		const width = canvas.clientWidth, height = canvas.clientHeight;
+		const shift = (this.#inset.left - this.#inset.right) / 2;
 		for (const camera of [this.perspective, this.orthographic]) {
-			if (this.#inset && width && height) camera.setViewOffset(width, height, -this.#inset / 2, 0, width, height);
+			if (shift && width && height) camera.setViewOffset(width, height, -shift, 0, width, height);
 			else camera.clearViewOffset();
 		}
 	}
@@ -397,6 +522,8 @@ export class Viewer {
 	}
 
 	dispose() {
+		this.#tool?.dispose();
+		this.#tool = null;
 		this.#resize.disconnect();
 		this.renderer.setAnimationLoop(null);
 		this.controls.dispose();
