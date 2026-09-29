@@ -56,9 +56,10 @@ versions as long as it keeps its name and parent; ids of parts that no longer ex
 ## Where the models come from
 
 The models live in [Gangleri42/sh-hardware](https://github.com/Gangleri42/sh-hardware) as STEP files, one per model
-version: `seed/Seed-v<n>.step` and `hammer/Hammer-v<n>.step`. The viewer lists every version in the history and shows
-the newest commit of each file, so older versions stay available and pinned links keep working. A push to
-sh-hardware that touches a model triggers a rebuild here; a daily build is the fallback.
+version: `seed/Seed-v<n>.step` and `hammer/Hammer-v<n>.step`. Every version in the history stays available, frozen at
+the commit that added its file, so a pinned link shows the same model forever. A later change to a published file is
+left out with a warning; a new export gets a new version number. A push to sh-hardware that touches a model triggers
+a rebuild here; a daily build is the fallback.
 
 1. `export/step/step_to_manifest.py` reads a STEP with OpenCascade (`cadquery-ocp`) and writes the assembly tree,
    colours and meshes.
