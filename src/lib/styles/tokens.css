@@ -13,9 +13,10 @@
 	--accent: #e2561b;
 	--accent-soft: #e2561b1f;
 	--accent-text: #b8410f;
-	--measure: #1a6fd6;
-	--measure-soft: #1a6fd61f;
-	--measure-text: #1459ad;
+	/* Measure uses the accent; the dark blocks change the accent, so these follow. */
+	--measure: var(--accent);
+	--measure-soft: var(--accent-soft);
+	--measure-text: var(--accent-text);
 	--viewport: #eceae4;
 	--edges: #1a1a18;
 	--ground: #3a3020;
@@ -35,9 +36,6 @@
 	--accent: #f26b30;
 	--accent-soft: #f26b3029;
 	--accent-text: #ff8a55;
-	--measure: #5aa2ff;
-	--measure-soft: #5aa2ff29;
-	--measure-text: #8cbdff;
 	--viewport: #191918;
 	--edges: #000000;
 	--ground: #000000;
@@ -58,9 +56,6 @@
 		--accent: #f26b30;
 		--accent-soft: #f26b3029;
 		--accent-text: #ff8a55;
-		--measure: #5aa2ff;
-		--measure-soft: #5aa2ff29;
-		--measure-text: #8cbdff;
 		--viewport: #191918;
 		--edges: #000000;
 		--ground: #000000;

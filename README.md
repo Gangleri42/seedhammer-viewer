@@ -1,8 +1,8 @@
 # SeedHammer viewer
 
 A web viewer for the SeedHammer engraving machine and its Seed controller. It shows the latest CAD version of each in
-3D: section cuts, per-part visibility, exploded views, and a STEP download. Every view is encoded in the URL hash, so
-a link opens exactly what you were looking at.
+3D: section cuts, per-part visibility, exploded views, measuring, and a STEP download. Every view is encoded in the URL
+hash, so a link opens exactly what you were looking at.
 
 ## Develop
 
@@ -29,6 +29,13 @@ npm run build:napplet    # the napplet, one file in dist-napplet/ (after npm run
 - Section: up to three planes along X, Y or Z (Fusion's axes, millimetres). A new plane removes the half facing the
   camera; "Flip" keeps the other half. Cut faces are hatched in the part's colour.
 - Explode: sub-assemblies move apart first, then their parts. Fasteners pull out along their own axis.
+- Measure (`I`), as in Fusion: click two faces, edges or points and read the shortest distance between them, the
+  angle, and for two circles or holes the centre distance with its minimum and maximum. One item alone shows its
+  length, area, radius, diameter or position. Hold ⌘/Ctrl to pick circle centres, midpoints and ends; Shift hides
+  them; on a touch screen, a circle's Centre button does the same. Values come from the exact CAD geometry; a value
+  marked ≈ is measured on the displayed mesh instead, within a few hundredths of a millimetre (free-form surfaces).
+  Measuring always uses the assembled model, so the explode goes back to 0 while Measure is open. `Esc` clears the
+  measurement, a second `Esc` closes the tool.
 
 ## Share links
 
@@ -36,6 +43,7 @@ npm run build:napplet    # the napplet, one file in dist-napplet/ (after npm run
 #/seed                                         latest version, default view
 #/hammer@41?hide=k3x9a1&cut=x:12.5&ex=0.6      pinned to v41, a part hidden, section at x = 12.5 mm, 60 % exploded
 #/seed?iso=0f2kq7&cut=y:-66.1!&cam=60,-130,70;100,-66,0&ortho=1
+#/seed@15?m=k3x9a1.f12.q7,0f2kq7.c40.3b        a measurement on v15: a face and a circle's centre
 ```
 
 | key     | value                                                                 |
@@ -47,11 +55,17 @@ npm run build:napplet    # the napplet, one file in dist-napplet/ (after npm run
 | `ex`    | explode, 0 to 1                                                       |
 | `cam`   | camera position; target; orthographic zoom                            |
 | `sel`   | selected part                                                         |
+| `m`     | up to two measured items; a route with them always names its version  |
 | `edges` | `0` hides edge lines                                                  |
 | `ortho` | `1` for orthographic                                                  |
 
 Part ids are a short hash of the part's place in the assembly (`frame:1+side_plates:1`), so a part keeps its id across
 versions as long as it keeps its name and parent; ids of parts that no longer exist are dropped with a notice.
+
+A measured item is `<body id>.<kind><number>.<check>`, the kind being `f` face, `e` edge, `v` vertex, `c` centre of a
+circle or `m` midpoint of an edge. The numbers hold within one version's geometry, which is why the version comes
+along; the two check characters, taken from the item's size, drop an item that no longer matches instead of measuring
+something else.
 
 ## Where the models come from
 
@@ -62,9 +76,13 @@ left out with a warning; a new export gets a new version number. A push to sh-ha
 a rebuild here; a daily build is the fallback.
 
 1. `export/step/step_to_manifest.py` reads a STEP with OpenCascade (`cadquery-ocp`) and writes the assembly tree,
-   colours and meshes.
+   colours and meshes, each triangle with the id of its CAD face, and the exact geometry of every face, edge and
+   vertex (planes, cylinders, cones, spheres, tori, lines, arcs).
 2. `pipeline/build-model.ts` simplifies the meshes (`pipeline/models.json` sets the tolerance per model and per
-   component), splits normals at 30° creases, draws feature edges and writes a GLB.
+   component) without letting a triangle straddle two faces, splits normals at 30° creases, draws feature edges and
+   writes a GLB whose `_FACEID` vertex attribute names each triangle's face. `pipeline/measure.ts` writes the exact
+   geometry, with each solid's measured mesh tolerance, as `v<n>.measure.json.gz` (see `src/lib/measure/format.ts`),
+   which the Measure tool loads when it opens.
 3. `pipeline/build-all.ts` does this for every version it finds, caches each result by the STEP file's git blob, zips
    the STEP for download and writes `static/models/index.json`.
 
@@ -129,10 +147,10 @@ on the INC topic `napplet:cad-viewer/open` (or `cad-viewer:open`, after the view
 stlstr delivers). `{ model, version }` is accepted as a weaker payload. The share menu offers all three link kinds.
 
 The napplet is one file, `dist-napplet/index.html`, built with `npm run build:napplet`: the latest model of each kind
-is inlined, older versions are fetched through the shell's `resource` capability by hash, the STEP opens through
-`link`, colours follow `theme`. `npm run test:conformance` runs the NAP conformance suite, `npm run paja` opens it in
-the Paja workshop, and `npm run dev:shell` serves a small shell at <http://127.0.0.1:4180/> that delivers intents,
-flips the theme and logs every envelope.
+and its measurement file are inlined, older versions are fetched through the shell's `resource` capability by hash,
+the STEP opens through `link`, colours follow `theme`. `npm run test:conformance` runs the NAP conformance suite,
+`npm run paja` opens it in the Paja workshop, and `npm run dev:shell` serves a small shell at
+<http://127.0.0.1:4180/> that delivers intents, flips the theme and logs every envelope.
 
 ## Privacy check
 

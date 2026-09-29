@@ -17,7 +17,7 @@ export const REQUIRES = ['inc', 'resource', 'theme', 'link'];
 type SiteConfig = { id: string; pubkey?: string; servers: string[]; gatewayHostnames?: string[] };
 const site: SiteConfig = JSON.parse(readFileSync(at('./.nsite/config.json'), 'utf8'));
 
-/** Build-time data: the manifest, the latest GLB of each model, and where the site lives. */
+/** Build-time data: the manifest, the latest GLB and measurement file of each model, and where the site lives. */
 function models(): Plugin {
 	const id = 'virtual:seedhammer-models';
 	const resolved = `\0${id}`;
@@ -30,7 +30,9 @@ function models(): Plugin {
 			const inline: Record<string, string> = {};
 			for (const entry of Object.values(index.models)) {
 				const latest = entry.versions.find((v) => v.version === entry.latest) ?? entry.versions[0];
-				inline[latest.glb.sha256] = readFileSync(at(`./static/models/${latest.glb.path}`)).toString('base64');
+				for (const file of [latest.glb, latest.measure]) {
+					if (file) inline[file.sha256] = readFileSync(at(`./static/models/${file.path}`)).toString('base64');
+				}
 			}
 			const shareOrigin = process.env.VITE_SHARE_ORIGIN ?? 'https://viewer.seedhammer.space';
 			const gateway = site.gatewayHostnames?.[0];
@@ -102,7 +104,8 @@ export default defineConfig({
 		modulePreload: { polyfill: false },
 		sourcemap: false,
 		target: 'es2022',
-		chunkSizeWarningLimit: 8000
+		// One chunk carries the latest models and their measurement files; napplet-artifact.test.ts holds the real limit.
+		chunkSizeWarningLimit: 11000
 	},
 	// Paja loads the dev server into an opaque-origin frame, which sends "Origin: null".
 	server: { cors: { origin: '*' } },

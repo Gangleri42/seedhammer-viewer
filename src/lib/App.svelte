@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import type { Host, ShareLink, StepAction } from '$lib/host/host';
+	import { readMeasure, type MeasureFile } from '$lib/measure/format';
 	import type { ModelIndex } from '$lib/models/types';
-	import { decode, defaultState, encode, DEFAULT_MODEL, type Axis, type Cut, type ViewState } from '$lib/state/hash';
+	import { decode, defaultState, encode, sameRef, DEFAULT_MODEL, type Axis, type Cut, type MeasureRef, type ViewState } from '$lib/state/hash';
 	import { theme } from '$lib/theme.svelte';
+	import MeasurePanel from '$lib/ui/MeasurePanel.svelte';
 	import PartTree from '$lib/ui/PartTree.svelte';
 	import SectionPanel from '$lib/ui/SectionPanel.svelte';
+	import type { MeasureStatus, MeasureTool, Outcome } from '$lib/viewer/measure/tool';
 	import type { Part, PartIndex } from '$lib/viewer/parts';
 	import { applyVisibility } from '$lib/viewer/parts';
 	import type { NamedView, Viewer } from '$lib/viewer/scene';
@@ -28,8 +31,23 @@
 	let copied = $state<string | null>(null);
 	let fallback = $state<{ label: string; text: string } | null>(null);
 	let narrow = $state(false);
+	/** A touch screen without a mouse: Measure has no hover there. */
+	let touch = $state(false);
 	/** Whether the meshopt decoder works here; null until the viewer module is in. */
 	let wasm: boolean | null = null;
+
+	// Measure: open while the tool is up or while the view holds measured items (a link can bring them).
+	let measureOpen = $state(false);
+	let measureTool = $state.raw<MeasureTool | null>(null);
+	let measureData = $state.raw<{ key: string; data: MeasureFile } | null>(null);
+	let measureStatus = $state<MeasureStatus>('loading');
+	let measureProgress = $state<number | null>(0);
+	let measureError = $state('');
+	let measureRetry = $state(0);
+	let outcome = $state.raw<Outcome | null>(null);
+	let snapping = $state(true);
+	let precision = $state(2);
+	const measuring = $derived(measureOpen || view.measure.length > 0);
 
 	const entry = $derived(index ? (index.models[view.model] ?? index.models[DEFAULT_MODEL]) : null);
 	const current = $derived(entry ? (entry.versions.find((v) => v.version === view.version) ?? entry.versions[0]) : null);
@@ -53,6 +71,7 @@
 		narrow = query.matches;
 		panelOpen = !narrow;
 		query.addEventListener('change', (e) => (narrow = e.matches));
+		touch = matchMedia('(pointer: coarse)').matches && !matchMedia('(hover: hover)').matches;
 
 		let disposed = false;
 		let instance: Viewer | undefined;
@@ -81,7 +100,7 @@
 			.catch((err: Error) => (error = `Could not load the model list: ${err.message}`));
 
 		const stopRoutes = host.onRoute((route) => {
-			if (route === encode(view)) return;
+			if (route === routeOf(view.version)) return;
 			const next = decode(route);
 			const sameModel = next.model === view.model && next.version === view.version;
 			view = next;
@@ -163,6 +182,10 @@
 	$effect(() => {
 		if (viewer && parts) viewer.setExplode(view.explode);
 	});
+	// Measurements are taken on the assembled model.
+	$effect(() => {
+		if (measuring && view.explode) view.explode = 0;
+	});
 	$effect(() => {
 		if (viewer && parts) viewer.setEdges(view.edges);
 	});
@@ -173,21 +196,112 @@
 		if (viewer && parts) viewer.highlight(selectedPart);
 	});
 	$effect(() => {
-		// The desktop panel is 300 px wide plus a 12 px margin.
-		viewer?.setInset(panelOpen && !narrow ? 312 : 0);
+		// The desktop panels are 300 px wide plus a 12 px margin.
+		viewer?.setInset(panelOpen && !narrow ? 312 : 0, measuring && !narrow ? 312 : 0);
 	});
 	$effect(() => {
 		void theme.dark;
+		void measureTool;
 		if (!viewer) return;
 		const css = getComputedStyle(document.documentElement);
 		const token = (name: string) => css.getPropertyValue(name).trim();
 		viewer.setPalette({ background: token('--viewport'), edges: token('--edges'), accent: token('--accent'), ground: token('--ground'), measure: token('--measure') });
 	});
 
+	// The Measure tool arrives with its first use.
+	let toolLoading = false;
+	$effect(() => {
+		if (!measuring || !viewer || measureTool || toolLoading) return;
+		toolLoading = true;
+		const target = viewer;
+		import('$lib/viewer/measure/tool')
+			.then(({ MeasureTool }) => {
+				if (viewer !== target) return;
+				const tool = new MeasureTool(target, { change: (refs) => (view.measure = refs), outcome: (o) => (outcome = o) });
+				target.setTool(tool);
+				measureTool = tool;
+				if (import.meta.env.DEV) Object.assign(window, { measure: tool });
+			})
+			.catch((err: Error) => {
+				measureStatus = 'error';
+				measureError = `Could not start Measure: ${err.message}`;
+			})
+			.finally(() => (toolLoading = false));
+	});
+
+	// The exact geometry for the version on screen, once the model is in; like the GLB, only the newest request counts.
+	let measureRequest = 0;
+	$effect(() => {
+		void measureRetry;
+		if (!measuring || !current || !key || loaded !== key) return;
+		if (measureData?.key === key) {
+			measureStatus = 'ready';
+			return;
+		}
+		const file = current.measure;
+		if (!file) {
+			measureStatus = 'unavailable';
+			return;
+		}
+		const ticket = ++measureRequest;
+		const target = key, glb = current.glb.sha256;
+		measureStatus = 'loading';
+		measureProgress = 0;
+		measureError = '';
+		host.models
+			.bytes(file, (f) => {
+				if (ticket === measureRequest) measureProgress = f;
+			})
+			.then(readMeasure)
+			.then((data) => {
+				if (ticket !== measureRequest) return;
+				if (data.glb !== glb) throw new Error('it belongs to another build of this model');
+				measureData = { key: target, data };
+				measureStatus = 'ready';
+			})
+			.catch((err: Error) => {
+				if (ticket !== measureRequest) return;
+				measureStatus = 'error';
+				measureError = `Could not load the measurement data: ${err.message}`;
+			});
+	});
+
+	// Push Measure's state into the tool. Items a link brings that this version does not have are dropped, with a word.
+	$effect(() => {
+		measureTool?.setActive(measuring);
+	});
+	$effect(() => {
+		const data = measureData && measureData.key === loaded ? measureData.data : null;
+		if (!measureTool) return;
+		measureTool.setModel(data);
+		if (!data) return;
+		const refs = untrack(() => $state.snapshot(view.measure)) as MeasureRef[];
+		const keep = refs.filter((ref) => measureTool!.valid(ref));
+		if (keep.length < refs.length) {
+			const n = refs.length - keep.length;
+			notice = `${n} measured item${n > 1 ? 's' : ''} from this link ${n > 1 ? 'are' : 'is'} not in v${current?.version}.`;
+			view.measure = keep;
+		}
+	});
+	$effect(() => {
+		measureTool?.setSelection($state.snapshot(view.measure) as MeasureRef[]);
+	});
+	$effect(() => {
+		measureTool?.setSnapping(snapping);
+	});
+	$effect(() => {
+		measureTool?.setPrecision(precision);
+	});
+
+	/** Measured items only mean something for one version: a route that carries them names it. */
+	function routeOf(version: number | null) {
+		return encode({ ...view, version: view.measure.length ? (current?.version ?? version) : version });
+	}
+
 	// Mirror the view into the route (the URL hash on the web) without adding history entries.
 	let routeTimer: ReturnType<typeof setTimeout>;
 	$effect(() => {
-		const route = encode(view);
+		const route = routeOf(view.version);
 		clearTimeout(routeTimer);
 		routeTimer = setTimeout(() => host.publishRoute(route), 250);
 	});
@@ -227,7 +341,19 @@
 	}
 	/** The share menu's route: pinned to the version on screen, or following the latest. */
 	function shareRoute() {
-		return encode({ ...view, version: pin ? (current?.version ?? null) : null });
+		return routeOf(pin ? (current?.version ?? null) : null);
+	}
+	function openMeasure() {
+		measureOpen = true;
+		sectionOpen = shareOpen = false;
+		if (narrow) panelOpen = false;
+	}
+	function closeMeasure() {
+		measureOpen = false;
+		view.measure = [];
+	}
+	function swapMeasure(from: MeasureRef, to: MeasureRef) {
+		view.measure = view.measure.map((ref) => (sameRef(ref, from) ? to : ref));
 	}
 	async function share(link: ShareLink) {
 		fallback = null;
@@ -247,10 +373,21 @@
 	function onKey(e: KeyboardEvent) {
 		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
 		if (e.key === 'Escape') {
+			if (measuring && !sectionOpen && !shareOpen) {
+				// First Esc clears the measurement, the next closes the tool.
+				if (view.measure.length) view.measure = [];
+				else closeMeasure();
+				return;
+			}
 			view.selected = null;
 			sectionOpen = shareOpen = false;
 		}
 		if (e.key === 'f') viewer?.fit();
+		// Fusion's key for Measure.
+		if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && parts) {
+			if (measuring) closeMeasure();
+			else openMeasure();
+		}
 	}
 </script>
 
@@ -259,7 +396,7 @@
 	<title>{entry ? `${entry.title} v${current?.version}` : 'SeedHammer'} · 3D viewer</title>
 </svelte:head>
 
-<main class:panel-open={panelOpen}>
+<main class:panel-open={panelOpen} class:measure-open={measuring && !narrow}>
 	<canvas bind:this={canvas}></canvas>
 
 	<header>
@@ -275,7 +412,11 @@
 					class="version"
 					aria-label="Version"
 					value={view.version ?? 'latest'}
-					onchange={(e) => (view.version = e.currentTarget.value === 'latest' ? null : Number(e.currentTarget.value))}
+					onchange={(e) => {
+						view.version = e.currentTarget.value === 'latest' ? null : Number(e.currentTarget.value);
+						// Measured items belong to the version they were picked on.
+						view.measure = [];
+					}}
 				>
 					<option value="latest">v{entry.latest}{narrow ? '' : ' · latest'}</option>
 					{#each entry.versions as v (v.version)}
@@ -293,8 +434,10 @@
 				{#if shareOpen}
 					{@const links = host.shareLinks(shareRoute())}
 					<div class="menu" role="menu">
-						<p>The link keeps parts, cuts, explode and camera.</p>
-						{#if current}
+						<p>The link keeps parts, cuts, explode, camera and measurements.</p>
+						{#if current && view.measure.length}
+							<label class="pin"><input type="checkbox" checked disabled /> Pin to v{current.version} <small>measurements belong to this version</small></label>
+						{:else if current}
 							<label class="pin"><input type="checkbox" bind:checked={pin} /> Pin to v{current.version} <small>otherwise always the latest</small></label>
 						{/if}
 						{#each links as link (link.id)}
@@ -356,6 +499,30 @@
 		</aside>
 	{/if}
 
+	{#if measuring && !(narrow && (panelOpen || sectionOpen))}
+		<aside class="card measure-card">
+			<MeasurePanel
+				{outcome}
+				status={measureStatus}
+				progress={measureProgress}
+				error={measureError}
+				version={current?.version ?? null}
+				{snapping}
+				{precision}
+				{touch}
+				onSnapping={(on) => (snapping = on)}
+				onPrecision={(decimals) => (precision = decimals)}
+				onRemove={(ref) => (view.measure = view.measure.filter((r) => !sameRef(r, ref)))}
+				onSwap={swapMeasure}
+				onClear={() => (view.measure = [])}
+				onClose={closeMeasure}
+				onRetry={() => measureRetry++}
+				onFocus={(row) => measureTool?.focus(row)}
+				onCopy={(text) => host.copy(text)}
+			/>
+		</aside>
+	{/if}
+
 	<div class="dock">
 		{#if sectionOpen}
 			<div class="card">
@@ -384,9 +551,13 @@
 				<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5Z" /><path d="M3 10h14" stroke-dasharray="2 2" /></svg>
 				<span>Section{view.cuts.length ? ` ${view.cuts.length}` : ''}</span>
 			</button>
-			<label class="explode" title="Explode">
+			<button class="tool" class:on={measuring} onclick={() => (measuring ? closeMeasure() : openMeasure())} aria-pressed={measuring} disabled={!parts} title="Measure (I)">
+				<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 13 13 2.5l4.5 4.5L7 17.5Z" /><path d="M5.5 10l2 2M8 7.5l1.5 1.5M10.5 5l2 2" /></svg>
+				<span>Measure</span>
+			</button>
+			<label class="explode" class:off={measuring} title={measuring ? 'Explode is off while measuring' : 'Explode'}>
 				<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7.5" y="7.5" width="5" height="5" rx="1" /><path d="M4 4l2 2M16 4l-2 2M4 16l2-2M16 16l-2-2" /></svg>
-				<input type="range" min="0" max="1" step="0.01" bind:value={view.explode} aria-label="Explode" />
+				<input type="range" min="0" max="1" step="0.01" bind:value={view.explode} disabled={measuring} aria-label="Explode" />
 			</label>
 		</div>
 	</div>
@@ -684,6 +855,26 @@
 		left: calc(50% + 156px);
 		max-width: calc(100% - 336px);
 	}
+	main.measure-open .dock {
+		left: calc(50% - 156px);
+		max-width: calc(100% - 336px);
+	}
+	main.panel-open.measure-open .dock {
+		left: 50%;
+		max-width: calc(100% - 648px);
+	}
+	.measure-card {
+		position: absolute;
+		top: calc(env(safe-area-inset-top, 0px) + 64px);
+		right: max(12px, env(safe-area-inset-right, 0px));
+		width: 300px;
+		max-height: calc(100% - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 152px);
+		overflow: auto;
+		box-sizing: border-box;
+		border-radius: 14px;
+		padding: 12px;
+		z-index: 2;
+	}
 	.card {
 		border-radius: 14px;
 		padding: 12px;
@@ -745,6 +936,13 @@
 	.explode input {
 		width: 110px;
 		accent-color: var(--accent);
+	}
+	.explode.off {
+		opacity: 0.45;
+	}
+	.tool:disabled {
+		opacity: 0.45;
+		cursor: default;
 	}
 
 	/* status */
@@ -811,6 +1009,13 @@
 		main.panel-open .dock {
 			left: 50%;
 			max-width: calc(100% - 16px);
+		}
+		.measure-card {
+			top: calc(env(safe-area-inset-top, 0px) + 58px);
+			left: 8px;
+			right: 8px;
+			width: auto;
+			max-height: 42dvh;
 		}
 		.explode input {
 			width: 90px;
