@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>SeedHammer napplet dev shell</title>
+		<style>
+			body { margin: 0; height: 100vh; display: grid; grid-template-rows: auto 1fr 140px; font: 13px system-ui, sans-serif; background: #ddd; }
+			header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; background: #fff; border-bottom: 1px solid #bbb; }
+			iframe { border: 0; width: 100%; height: 100%; background: #fff; }
+			pre { margin: 0; padding: 6px 8px; overflow: auto; font: 11px ui-monospace, monospace; background: #222; color: #ddd; }
+			input[type='text'] { width: 340px; font: inherit; }
+		</style>
+	</head>
+	<body>
+		<header>
+			<strong>dev shell</strong>
+			<input id="route" type="text" value="/seed@4?ortho=1&cut=z:10" />
+			<button id="stlstr">Deliver as cad-viewer:open</button>
+			<button id="kehto">Deliver as napplet:cad-viewer/open</button>
+			<label><input id="dark" type="checkbox" /> dark shell theme</label>
+			<span id="status"></span>
+		</header>
+		<iframe id="frame" sandbox="allow-scripts" title="napplet"></iframe>
+		<pre id="log"></pre>
+		<script type="module">
+			const frame = document.getElementById('frame');
+			const logEl = document.getElementById('log');
+			const status = document.getElementById('status');
+			const dark = document.getElementById('dark');
+			const domains = ['inc', 'resource', 'theme', 'link'];
+			const subscriptions = new Set();
+			// What the shell has seen, for the smoke test to read.
+			window.seen = { envelopes: [], links: [], resources: [] };
+			const log = (line) => {
+				logEl.textContent += `${line}\n`;
+				logEl.scrollTop = logEl.scrollHeight;
+			};
+			const post = (message) => frame.contentWindow.postMessage(message, '*');
+			const theme = () => ({
+				colors: dark.checked ? { background: '#101418', text: '#e6e6e6', primary: '#4fa3ff' } : { background: '#f7f7f2', text: '#1c1c1a', primary: '#e2561b' }
+			});
+			let pending = null;
+			const deliver = (topic, route) => {
+				if (!subscriptions.has(topic)) {
+					pending = { topic, route };
+					status.textContent = `waiting for a subscription to ${topic}`;
+					return;
+				}
+				post({ type: 'inc.event', topic, payload: { route }, sender: 'shell' });
+				status.textContent = `delivered ${topic} ${route}`;
+			};
+			document.getElementById('stlstr').onclick = () => deliver('cad-viewer:open', document.getElementById('route').value);
+			document.getElementById('kehto').onclick = () => deliver('napplet:cad-viewer/open', document.getElementById('route').value);
+			dark.onchange = () => post({ type: 'theme.changed', theme: theme() });
+
+			const resolve = (url, servers) => {
+				const hash = /^blossom:(?:sha256:)?([0-9a-f]{64})/i.exec(url)?.[1];
+				if (!hash) return url;
+				const hint = servers?.[0] ?? new URL(url.replace(/^blossom:[^?]*/, 'http://x/')).searchParams.get('xs');
+				return `${(hint ?? '').replace(/\/+$/, '')}/${hash}`;
+			};
+			addEventListener('message', async (event) => {
+				if (event.source !== frame.contentWindow) return;
+				const m = event.data;
+				if (!m || typeof m !== 'object' || typeof m.type !== 'string') return;
+				window.seen.envelopes.push(m.type);
+				log(`← ${m.type} ${JSON.stringify({ ...m, type: undefined }).slice(0, 140)}`);
+				switch (m.type) {
+					case 'shell.ready':
+						post({ type: 'shell.init', capabilities: { domains: ['shell', ...domains] }, services: [] });
+						break;
+					case 'inc.subscribe':
+						subscriptions.add(m.topic);
+						post({ type: 'inc.subscribe.result', id: m.id });
+						if (pending && pending.topic === m.topic) {
+							const { topic, route } = pending;
+							pending = null;
+							deliver(topic, route);
+						}
+						break;
+					case 'inc.unsubscribe':
+						subscriptions.delete(m.topic);
+						break;
+					case 'theme.get':
+						post({ type: 'theme.get.result', id: m.id, theme: theme() });
+						break;
+					case 'resource.bytes': {
+						window.seen.resources.push(m.url);
+						try {
+							const response = await fetch(resolve(m.url, m.servers));
+							if (!response.ok) throw new Error(`${response.status}`);
+							const blob = await response.blob();
+							post({ type: 'resource.bytes.result', id: m.id, blob, mime: blob.type });
+						} catch (err) {
+							post({ type: 'resource.bytes.error', id: m.id, error: 'fetch-failed', message: String(err) });
+						}
+						break;
+					}
+					case 'link.open':
+						window.seen.links.push(m.url);
+						post({ type: 'link.open.result', id: m.id, status: 'opened' });
+						break;
+				}
+			});
+
+			const html = await (await fetch('/napplet.html')).text();
+			frame.srcdoc = html;
+			status.textContent = `loaded ${(html.length / 1e6).toFixed(1)} MB into the sandbox`;
+		</script>
+	</body>
+</html>

@@ -1,0 +1,11 @@
+{
+	"id": "sh-viewer",
+	"title": "SeedHammer viewer",
+	"description": "3D viewer for the SeedHammer engraving machine and the Seed controller: section cuts, part visibility, exploded views and STEP download.",
+	"source": "nostr://npub1zj0q0eseamwn9er4drf3jl3kufc0fddsfrr0v54l2mlfqenah7ysxuy9th/relay.ngit.dev/seedhammer-viewer",
+	"pubkey": "149e07e619eedd32e47568d3197e36e270f4b5b048c6f652bf56fe90667dbf89",
+	"relays": ["wss://relay.unrug.tech", "wss://relay2.unrug.tech", "wss://nsite.run", "wss://relay.damus.io", "wss://relay.primal.net", "wss://nos.lol"],
+	"archiveRelays": ["wss://archive.unrug.tech"],
+	"servers": ["https://bls.unrug.tech", "https://blssm.us", "https://blossom.ditto.pub", "https://nsite.run", "https://nostr.download", "https://blossom.primal.net", "https://cdn.hzrd149.com"],
+	"gatewayHostnames": ["nsite.lol"]
+}

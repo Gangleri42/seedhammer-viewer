@@ -1,0 +1,53 @@
+{
+	"name": "seedhammer-viewer",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "vitest run",
+		"models": "tsx pipeline/build-all.ts",
+		"build:napplet": "vite build --config vite.napplet.config.ts",
+		"dev:napplet": "vite --config vite.napplet.config.ts --host 127.0.0.1 --port 5174",
+		"preview:napplet": "vite preview --config vite.napplet.config.ts --host 127.0.0.1 --port 4174",
+		"paja": "kehto paja --target-url http://127.0.0.1:5174 -- npm run dev:napplet",
+		"dev:shell": "node scripts/dev-shell/serve.mjs",
+		"test:conformance": "napplet-conformance ./dist-napplet",
+		"publish:nostr": "tsx pipeline/publish-nostr.ts",
+		"verify:nostr": "tsx pipeline/verify-nostr.ts"
+	},
+	"devDependencies": {
+		"@gltf-transform/core": "^4.5.0",
+		"@gltf-transform/extensions": "^4.5.0",
+		"@gltf-transform/functions": "^4.5.0",
+		"@kehto/cli": "^0.5.0",
+		"@napplet/conformance-cli": "^0.2.19",
+		"@napplet/nap": "^0.32.0",
+		"@napplet/shim": "^0.30.0",
+		"@napplet/vite-plugin": "^0.14.1",
+		"@sveltejs/adapter-static": "^3.0.10",
+		"@sveltejs/kit": "^2.63.0",
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/node": "^26.6.3",
+		"@types/three": "^0.186.0",
+		"@types/ws": "^8.18.1",
+		"nostr-tools": "^2.25.2",
+		"svelte": "^5.56.1",
+		"svelte-check": "^4.6.0",
+		"tsx": "^4.23.15",
+		"typescript": "^6.0.3",
+		"vite": "^8.0.16",
+		"vitest": "^5.0.2",
+		"ws": "^8.22.0"
+	},
+	"dependencies": {
+		"meshoptimizer": "^1.3.0",
+		"three": "^0.186.1",
+		"three-mesh-bvh": "^0.9.15"
+	}
+}

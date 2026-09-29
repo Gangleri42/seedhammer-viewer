@@ -1,0 +1,92 @@
+name: Build and deploy
+
+# Rebuilds on changes here, when sh-hardware reports a new model (repository_dispatch), daily as a fallback, and by hand.
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [hardware-updated]
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # Nothing is built or deployed from a tree or history that carries private data. The report names rules and
+  # places, never the match; PRIVATE_TERMS is an optional secret with one private term per line.
+  privacy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node scripts/privacy-check.mjs --tree HEAD --history HEAD
+        env:
+          PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
+
+  build:
+    needs: privacy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out the hardware repository with its full history
+        uses: actions/checkout@v7
+        with:
+          repository: Gangleri42/sh-hardware
+          path: sh-hardware
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install cadquery-ocp==8.0.1.0.0
+      - name: Restore converted models
+        uses: actions/cache@v6
+        with:
+          path: .cache/models
+          key: models-${{ hashFiles('pipeline/**', 'export/step/**') }}-${{ github.run_id }}
+          restore-keys: models-${{ hashFiles('pipeline/**', 'export/step/**') }}-
+      - run: npm ci
+      - run: npm test
+      - name: Convert every model version
+        run: npm run models
+        env:
+          HARDWARE_DIR: sh-hardware
+          CONVERT: python
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: build
+      # The napplet is checked here but published only from a machine with the signer (npm run publish:nostr).
+      - run: npm run build:napplet
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:conformance
+      - uses: actions/upload-artifact@v4
+        with:
+          name: napplet
+          path: dist-napplet
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
