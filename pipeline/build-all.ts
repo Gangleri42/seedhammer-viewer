@@ -1,7 +1,8 @@
 // Builds every version of every model in the hardware repository into static/models, plus static/models/index.json.
 //
-// A version is a commit that adds or changes <folder>/<Name>-v<n>.step; each is converted once and cached under
-// .cache/models, keyed by the STEP file's git blob and a hash of this pipeline, so a new push only converts what is new.
+// A version is <folder>/<Name>-v<n>.step as the commit that added it has it (see versions.ts); each is converted once
+// and cached under .cache/models, keyed by the STEP file's git blob and a hash of this pipeline, so a new push only
+// converts what is new.
 //
 //   HARDWARE_DIR  full clone of the hardware repository (default ../sh-hardware)
 //   CONVERT       command that runs Python with OCP (default "python3"),
@@ -15,12 +16,12 @@ import { fileEntry, serialize } from './manifest.ts';
 import models from './models.json' with { type: 'json' };
 import { privateTerms } from '../scripts/privacy-rules.mjs';
 import { assertPublic } from './privacy.ts';
+import { pickVersions } from './versions.ts';
 
 const HARDWARE = process.env.HARDWARE_DIR ?? '../sh-hardware';
 const CONVERT = (process.env.CONVERT ?? 'python3').split(' ');
 const OUT = 'static/models';
 const CACHE = '.cache/models';
-const FILE = /^(.+)-v(\d+)\.step$/i;
 
 const git = (...args: string[]) => execFileSync('git', ['-C', HARDWARE, ...args], { encoding: 'utf8', maxBuffer: 1 << 26 }).trim();
 
@@ -35,22 +36,13 @@ const pipelineHash = createHash('sha256')
 
 type Source = { version: number; commit: string; date: string; path: string; blob: string };
 
-/** Newest commit per version of the model's STEP file. */
+/** Each version of the model's STEP file as first published; later changes to a version are reported and left out. */
 function sources(folder: string): Source[] {
-	const byVersion = new Map<number, Source>();
-	let commit = '', date = '';
-	for (const line of git('log', '--format=@%H %cs', '--name-only', '--diff-filter=AMR', '--', folder).split('\n')) {
-		if (line.startsWith('@')) {
-			[commit, date] = line.slice(1).split(' ');
-			continue;
-		}
-		const name = line.slice(folder.length + 1);
-		const match = line.startsWith(`${folder}/`) && !name.includes('/') ? FILE.exec(name) : null;
-		if (!match) continue;
-		const version = Number(match[2]);
-		if (!byVersion.has(version)) byVersion.set(version, { version, commit, date, path: line, blob: git('rev-parse', `${commit}:${line}`) });
+	const { sources: found, ignored } = pickVersions(git('log', '--reverse', '--format=@%H %cs', '--name-only', '--diff-filter=AMR', '--', folder), folder);
+	for (const change of ignored) {
+		console.warn(`${change.path} changed in ${change.commit.slice(0, 7)}; v${change.version} stays as first published so pinned links keep showing it. Export changes under a new version number.`);
 	}
-	return [...byVersion.values()].sort((a, b) => b.version - a.version);
+	return found.map((source) => ({ ...source, blob: git('rev-parse', `${source.commit}:${source.path}`) }));
 }
 
 /** Converts one STEP version, or returns it from the cache. */
