@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import type { Host, ShareLink, StepAction } from '$lib/host/host';
 	import type { ModelIndex } from '$lib/models/types';
 	import { decode, defaultState, encode, DEFAULT_MODEL, type Axis, type Cut, type ViewState } from '$lib/state/hash';
@@ -95,30 +95,46 @@
 		};
 	});
 
-	// Load the model whenever the model or version changes.
+	// Load the model whenever the model or version changes. Only the newest request may touch the scene: a load that a
+	// quick switch overtook is dropped when its bytes or its parse arrive, and switching back to the model on screen
+	// simply drops whatever was loading.
+	let request = 0;
 	$effect(() => {
-		if (!viewer || !current || !key || key === loaded) return;
+		if (!viewer || !current || !key) return;
+		const ticket = ++request;
+		const live = () => ticket === request;
+		if (key === loaded) {
+			progress = null;
+			error = '';
+			parts = viewer.parts;
+			return;
+		}
 		const target = key;
-		const wanted = $state.snapshot(view);
+		const version = current.version;
+		const title = entry?.title ?? 'the model';
+		// Read once and untracked: the camera and the sliders change the view all the time and must not restart the load.
+		const wanted = untrack(() => $state.snapshot(view));
 		progress = 0;
 		error = '';
 		parts = null;
 		const file = wasm === false ? current.plain : current.glb;
 		if (!file) {
 			progress = null;
-			error = `This host blocks WebAssembly, which the compressed model needs, and v${current.version} has no uncompressed copy.`;
+			error = `This host blocks WebAssembly, which the compressed model needs, and v${version} has no uncompressed copy.`;
 			return;
 		}
 		host.models
-			.glb(file, (f) => (progress = f ?? 0))
-			.then((buffer) => viewer!.loadBuffer(buffer))
+			.glb(file, (f) => {
+				if (live()) progress = f ?? 0;
+			})
+			.then((buffer) => (live() ? viewer!.loadBuffer(buffer, live) : null))
 			.then((index) => {
-				if (target !== key) return;
+				if (!index || !live()) return;
 				parts = index;
 				loaded = target;
 				const stale = [...wanted.hidden, ...wanted.isolated, ...(wanted.selected ? [wanted.selected] : [])].filter((id) => !index.byId.has(id));
 				if (stale.length) {
-					notice = `${stale.length} part${stale.length > 1 ? 's' : ''} from this link ${stale.length > 1 ? 'are' : 'is'} not in v${current!.version}.`;
+					notice = `${stale.length} part${stale.length > 1 ? 's' : ''} from this link ${stale.length > 1 ? 'are' : 'is'} not in v${version}.`;
 					view.hidden = view.hidden.filter((id) => index.byId.has(id));
 					view.isolated = view.isolated.filter((id) => index.byId.has(id));
 					if (view.selected && !index.byId.has(view.selected)) view.selected = null;
@@ -129,8 +145,9 @@
 				if (!wanted.camera) view.camera = null;
 			})
 			.catch((err: Error) => {
+				if (!live()) return;
 				progress = null;
-				error = `Could not load ${entry?.title ?? 'the model'}: ${err.message}`;
+				error = `Could not load ${title}: ${err.message}`;
 			});
 	});
 
