@@ -33,7 +33,7 @@ export function webModels(base: string): ModelSource {
 			if (!response.ok) throw new Error(`index.json: ${response.status}`);
 			return (await response.json()) as ModelIndex;
 		},
-		async glb(file, onProgress) {
+		async bytes(file, onProgress) {
 			return readWithProgress(await fetch(`${base}/models/${file.path}`), file.bytes, onProgress);
 		}
 	};

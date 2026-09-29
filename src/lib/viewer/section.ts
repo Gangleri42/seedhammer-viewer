@@ -15,6 +15,7 @@ const NORMALS: Record<Axis, THREE.Vector3> = {
 export class Section {
 	readonly planes: THREE.Plane[] = [];
 	#caps: THREE.Mesh[] = [];
+	#capped = new WeakSet<THREE.Mesh>();
 	#capMaterials = new Map<THREE.Material, THREE.ShaderMaterial>();
 	#materials: THREE.Material[] = [];
 
@@ -24,6 +25,7 @@ export class Section {
 		for (const material of this.#capMaterials.values()) material.dispose();
 		this.#capMaterials.clear();
 		this.#caps = [];
+		this.#capped = new WeakSet();
 		this.#materials = [];
 		const seen = new Set<THREE.Material>();
 		model.traverse((object) => {
@@ -42,7 +44,13 @@ export class Section {
 			cap.renderOrder = -1;
 			mesh.add(cap);
 			this.#caps.push(cap);
+			this.#capped.add(mesh);
 		});
+	}
+
+	/** Whether a cut through this mesh shows a hatched face (transparent bodies get none). */
+	hasCap(mesh: THREE.Mesh) {
+		return this.#capped.has(mesh);
 	}
 
 	set(cuts: Cut[]) {

@@ -124,7 +124,7 @@
 			return;
 		}
 		host.models
-			.glb(file, (f) => {
+			.bytes(file, (f) => {
 				if (live()) progress = f ?? 0;
 			})
 			.then((buffer) => (live() ? viewer!.loadBuffer(buffer, live) : null))
@@ -181,7 +181,7 @@
 		if (!viewer) return;
 		const css = getComputedStyle(document.documentElement);
 		const token = (name: string) => css.getPropertyValue(name).trim();
-		viewer.setPalette({ background: token('--viewport'), edges: token('--edges'), accent: token('--accent'), ground: token('--ground') });
+		viewer.setPalette({ background: token('--viewport'), edges: token('--edges'), accent: token('--accent'), ground: token('--ground'), measure: token('--measure') });
 	});
 
 	// Mirror the view into the route (the URL hash on the web) without adding history entries.
