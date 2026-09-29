@@ -5,12 +5,12 @@
 //   4. merges and publishes the relay list (10002) and server list (10063)
 //   5. publishes the site manifest (35128) with a snapshot (5128), then the napplet manifest (35129) with its snapshot (5129)
 //   6. fetches everything back from the relays and checks signatures and aggregates
-// Usage: npm run publish:nostr -- [--models] [--if-changed] [--no-ledger] [--dry-run] [--skip-build] [--skip-napplet] [--replace-lists] [--no-snapshot] [--min-public N]
+// Usage: npm run publish:nostr -- [--models] [--if-changed] [--dry-run] [--skip-build] [--skip-napplet] [--replace-lists] [--no-snapshot] [--min-public N]
 // It runs on the forge only: the forge's container sets SEEDHAMMER_PUBLISHER=forge and NOSTR_NSEC_FILE, and anywhere
 // else the script refuses to start, dry runs included, since those talk to the relays and servers too.
 // The models are built, not committed: run `npm run models` first, or pass --models to have it run here.
-// --if-changed stops early when the manifests on the relays already describe this build; --no-ledger leaves
-// pipeline/nostr/ledger.json alone (the relays are the record then).
+// --if-changed stops early when the manifests on the relays already describe this build. The relays are the record of
+// what is published; nothing about a deploy is written back into the repository.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -21,7 +21,6 @@ import { verifyEvent } from 'nostr-tools/pure';
 import { blobUrl, download, extOf, head, mirror, preflight, upload, verify } from './nostr/blossom.ts';
 import { chunksNeeded } from './nostr/carry.ts';
 import { KIND, LOOKUP_RELAYS, mimeOf, readConfig } from './nostr/config.ts';
-import { appendDeploy, lastDeploy, previousImmutable, readLedger, type Deploy } from './nostr/ledger.ts';
 import { mergeRelayList, mergeServerList } from './nostr/lists.ts';
 import { aggregate, collectFiles, nappletTemplate, siteTemplate, snapshotTemplate, tagValue, validate, type FileEntry } from './nostr/manifest.ts';
 import { siteOrigin, snapshotOrigin } from './nostr/nsite.ts';
@@ -45,6 +44,7 @@ const { values } = (() => {
 			options: {
 				models: { type: 'boolean' },
 				'if-changed': { type: 'boolean' },
+				// Accepted and ignored: the forge's command line still passes it from when a deploy ledger was kept.
 				'no-ledger': { type: 'boolean' },
 				'dry-run': { type: 'boolean' },
 				'skip-build': { type: 'boolean' },
@@ -63,7 +63,6 @@ if (!Number.isInteger(minPublic) || minPublic < 0) fail(`--min-public must be a 
 const opts = {
 	models: !!values.models,
 	ifChanged: !!values['if-changed'],
-	ledger: !values['no-ledger'],
 	dryRun: !!values['dry-run'],
 	skipBuild: !!values['skip-build'],
 	skipNapplet: !!values['skip-napplet'],
@@ -94,7 +93,6 @@ if (!existsSync('build/index.html')) fail('build/index.html is missing; run npm 
 
 // GitHub Pages files have no extension and mean nothing to a gateway.
 const site = collectFiles('build', ['/CNAME', '/.nojekyll']);
-const ledger = readLedger();
 const relays = new Relays();
 const readRelays = [...new Set([...config.relays, ...config.archiveRelays!])];
 
@@ -117,10 +115,10 @@ const fromOwnServer = async (sha256: string, path: string) => {
 
 // A returning browser may hold the previous index.html for an hour, so the hashed files it loads stay in the manifest
 // for one more deploy. They are found by following that index.html's imports through the manifest on the relays;
-// files it carried from older deploys drop out. Without a manifest on the relays, the ledger stands in, and when the
-// old index.html cannot be read, every hashed path of the old manifest stays once more.
+// files it carried from older deploys drop out. A first deploy has nothing to carry, and when the old index.html
+// cannot be read, every hashed path of the old manifest stays once more.
 const previousChunks: { path: string; sha256: string; bytes: number }[] = await (async () => {
-	if (!current.site) return previousImmutable(ledger);
+	if (!current.site) return [];
 	const files = listed(current.site);
 	const read = async (path: string) => {
 		const data = await fromOwnServer(files.get(path)!, path);
@@ -338,13 +336,8 @@ await publishList(KIND.serverList, (existing) => mergeServerList(existing, serve
 // ---- manifests and snapshots ----------------------------------------------------------------------------------------
 
 async function publishManifest(name: string, build: (created_at: number) => EventTemplate, kind: 35128 | 35129) {
-	const { event: remote, seen } = await relays.latest(readRelays, { kinds: [kind], authors: [config.pubkey], '#d': [config.id] });
-	// The relays are the record: the forge and a laptop may both publish, and the newer manifest simply replaces the
-	// older. A manifest the local ledger does not know is only worth a line.
-	const known = kind === KIND.site ? lastDeploy(ledger)?.site : lastDeploy(ledger)?.napplet;
-	if (remote && known && remote.id !== known.id && remote.created_at > known.created_at) {
-		log(`  the relays hold a ${name} manifest not in the local ledger (${remote.id.slice(0, 12)}…, ${new Date(remote.created_at * 1000).toISOString()}); replacing it`);
-	}
+	// The relays are the record: the new manifest replaces whatever they hold, and must be dated after it.
+	const { event: remote } = await relays.latest(readRelays, { kinds: [kind], authors: [config.pubkey], '#d': [config.id] });
 	const template = build(laterThan(remote));
 	validate(template);
 	const event = await signer.signEvent(template);
@@ -369,7 +362,6 @@ async function publishManifest(name: string, build: (created_at: number) => Even
 	}
 	validate(back.event);
 	log(`  ${name} read back from ${holders.length} relays, signature and aggregate verified${holders.length < 2 ? ' (WARNING: fewer than two relays hold it)' : ''}`);
-	void seen;
 	return { event, snapshot };
 }
 
@@ -401,7 +393,7 @@ if (sidecar) {
 	if (tagValue(sidecar, 'x') !== tagValue(nappletResult.event, 'x')) log('  WARNING: the published napplet aggregate differs from the build sidecar');
 }
 
-// ---- gateway check and ledger ---------------------------------------------------------------------------------------
+// ---- gateway check --------------------------------------------------------------------------------------------------
 
 const gateway = config.gatewayHostnames?.[0] ?? 'nsite.lol';
 const origin = siteOrigin(config.pubkey, config.id, gateway);
@@ -417,28 +409,6 @@ if (indexEntry) {
 	}
 }
 
-const commit = (() => {
-	try {
-		return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-	} catch {
-		return undefined;
-	}
-})();
-const deploy: Deploy = {
-	at: new Date().toISOString(),
-	commit,
-	site: {
-		id: siteResult.event.id,
-		x: tagValue(siteResult.event, 'x')!,
-		created_at: siteResult.event.created_at,
-		snapshot: siteResult.snapshot?.id,
-		files: siteEntries.map(({ path, sha256, bytes }) => ({ path, sha256, bytes }))
-	},
-	servers: serverTags
-};
-if (nappletResult) deploy.napplet = { id: nappletResult.event.id, x: tagValue(nappletResult.event, 'x')!, created_at: nappletResult.event.created_at, snapshot: nappletResult.snapshot?.id };
-if (opts.ledger) appendDeploy(ledger, deploy);
-
 const naddr = (kind: number) => nip19.naddrEncode({ kind, pubkey: config.pubkey, identifier: config.id, relays: [ownRelay] });
 log('\npublished');
 log(`  site      ${origin}/`);
@@ -449,5 +419,4 @@ if (nappletResult) {
 	log(`  napplet   ${naddr(KIND.napplet)}`);
 	if (nappletResult.snapshot) log(`            snapshot nevent ${nip19.neventEncode({ id: nappletResult.snapshot.id, author: config.pubkey, kind: nappletResult.snapshot.kind, relays: [ownRelay] })}`);
 }
-if (opts.ledger) log(`  ledger    pipeline/nostr/ledger.json (commit it)`);
 await shutdown();
