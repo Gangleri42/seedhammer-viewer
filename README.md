@@ -1,8 +1,8 @@
 # SeedHammer viewer
 
-A web viewer for the SeedHammer engraving machine and its Seed controller. It shows the latest CAD version of each in
-3D: section cuts, per-part visibility, exploded views, measuring, and a STEP download. Every view is encoded in the URL
-hash, so a link opens exactly what you were looking at.
+A web viewer for the Seed controller and the Hammer and II engraving machines. It shows the latest CAD version of each
+in 3D: section cuts, per-part visibility, exploded views, measuring, and a STEP download. Every view is encoded in the
+URL hash, so a link opens exactly what you were looking at.
 
 ## Develop
 
@@ -70,10 +70,10 @@ something else.
 ## Where the models come from
 
 The models live in [Gangleri42/sh-hardware](https://github.com/Gangleri42/sh-hardware) as STEP files, one per model
-version: `seed/Seed-v<n>.step` and `hammer/Hammer-v<n>.step`. Every version in the history stays available, frozen at
-the commit that added its file, so a pinned link shows the same model forever. A later change to a published file is
-left out with a warning; a new export gets a new version number. A push to sh-hardware that touches a model triggers
-a rebuild here; a daily build is the fallback.
+version: `seed/Seed-v<n>.step`, `hammer/Hammer-v<n>.step` and `II/II-v<n>.step`. Every version in the history stays
+available, frozen at the commit that added its file, so a pinned link shows the same model forever. A later change to
+a published file is left out with a warning; a new export gets a new version number. A push to sh-hardware that
+touches a model triggers a rebuild here; a daily build is the fallback.
 
 1. `export/step/step_to_manifest.py` reads a STEP with OpenCascade (`cadquery-ocp`) and writes the assembly tree,
    colours and meshes, each triangle with the id of its CAD face, and the exact geometry of every face, edge and
@@ -147,8 +147,9 @@ on the INC topic `napplet:cad-viewer/open` (or `cad-viewer:open`, after the view
 stlstr delivers). `{ model, version }` is accepted as a weaker payload. The share menu offers all three link kinds.
 
 The napplet is one file, `dist-napplet/index.html`, built with `npm run build:napplet`: the latest model of each kind
-and its measurement file are inlined, older versions are fetched through the shell's `resource` capability by hash,
-the STEP opens through `link`, colours follow `theme`. `npm run test:conformance` runs the NAP conformance suite,
+and its measurement file are inlined (a model marked `"napplet": false` in `pipeline/models.json` is left out of the
+napplet, so the file stays under its size limit), older versions are fetched through the shell's `resource`
+capability by hash, the STEP opens through `link`, colours follow `theme`. `npm run test:conformance` runs the NAP conformance suite,
 `npm run paja` opens it in the Paja workshop, and `npm run dev:shell` serves a small shell at
 <http://127.0.0.1:4180/> that delivers intents, flips the theme and logs every envelope.
 

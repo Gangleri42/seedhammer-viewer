@@ -22,11 +22,16 @@ describe.skipIf(!built)('napplet artefact', () => {
 		expect(html.byteLength).toBeLessThan(12_000_000);
 	});
 
-	it('carries the latest model of each kind and its measurement file', () => {
+	it('carries the latest model of each kind and its measurement file, except models kept out of the napplet', () => {
 		const index: ModelIndex = JSON.parse(readFileSync('static/models/index.json', 'utf8'));
-		for (const entry of Object.values(index.models)) {
+		const configs: Record<string, { napplet?: boolean }> = JSON.parse(readFileSync('pipeline/models.json', 'utf8'));
+		for (const [key, entry] of Object.entries(index.models)) {
 			const latest = entry.versions.find((v) => v.version === entry.latest)!;
-			for (const file of [latest.glb, latest.measure]) if (file) expect(text).toContain(file.sha256);
+			for (const file of [latest.glb, latest.measure]) {
+				if (!file) continue;
+				if (configs[key]?.napplet === false) expect(text).not.toContain(file.sha256);
+				else expect(text).toContain(file.sha256);
+			}
 		}
 	});
 
