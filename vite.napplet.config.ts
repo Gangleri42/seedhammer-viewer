@@ -26,7 +26,11 @@ function models(): Plugin {
 		resolveId: (source) => (source === id ? resolved : null),
 		load(source) {
 			if (source !== resolved) return null;
-			const index: ModelIndex = JSON.parse(readFileSync(at('./static/models/index.json'), 'utf8'));
+			const all: ModelIndex = JSON.parse(readFileSync(at('./static/models/index.json'), 'utf8'));
+			// Models marked "napplet": false in pipeline/models.json stay out: the file would outgrow its size limit.
+			const configs: Record<string, { napplet?: boolean }> = JSON.parse(readFileSync(at('./pipeline/models.json'), 'utf8'));
+			const carried = Object.entries(all.models).filter(([key]) => configs[key]?.napplet !== false);
+			const index: ModelIndex = { ...all, models: Object.fromEntries(carried) };
 			const inline: Record<string, string> = {};
 			for (const entry of Object.values(index.models)) {
 				const latest = entry.versions.find((v) => v.version === entry.latest) ?? entry.versions[0];
@@ -92,7 +96,7 @@ export default defineConfig({
 		nip5aManifest({
 			nappletType: NAPPLET_TYPE,
 			title: 'SeedHammer 3D viewer',
-			description: '3D viewer for the SeedHammer engraving machine and the Seed controller',
+			description: '3D viewer for the Seed controller and the Hammer and II engraving machines',
 			requires: REQUIRES,
 			archetypes: [{ slug: ARCHETYPE, convention: CONVENTION }],
 			artifactMode: 'single-file'

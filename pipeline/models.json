@@ -149,5 +149,113 @@
 				]
 			}
 		]
+	},
+	"ii": {
+		"title": "II",
+		"folder": "II",
+		"simplifyError": 0.02,
+		"simplifyErrorByComponent": {
+			"jaw_spring": 0.05
+		},
+		"materials": [
+			{
+				"appearance": "Stahl - satiniert",
+				"kind": "metal",
+				"roughness": 0.26,
+				"parts": [
+					"bearing_608z",
+					"bushing_1225",
+					"hammerhead (1)",
+					"jaw_spring",
+					"m4_threaded_rod",
+					"needle",
+					"spring_washer_8",
+					"x_spindle",
+					"y_spindle"
+				]
+			},
+			{
+				"appearance": "Edelstahl - gebürstet, gerade, lang",
+				"kind": "metal",
+				"roughness": 0.55,
+				"parts": [
+					"plate",
+					"x_rod",
+					"y_rod"
+				]
+			},
+			{
+				"appearance": "Messing - poliert",
+				"kind": "metal",
+				"roughness": 0.08,
+				"parts": [
+					"centerpiece_lever",
+					"lock_collar"
+				]
+			},
+			{
+				"appearance": "Kupfer - poliert",
+				"kind": "metal",
+				"roughness": 0.08,
+				"parts": [
+					"bushing_1220"
+				]
+			},
+			{
+				"appearance": "Aluminium - eloxiert, rau (Schwarz)",
+				"kind": "metal",
+				"roughness": 0.55,
+				"parts": [
+					"clampsled"
+				]
+			},
+			{
+				"appearance": "Aluminium - eloxiert, rau (Rot)",
+				"kind": "metal",
+				"roughness": 0.55,
+				"parts": [
+					"hammerhead (2)"
+				]
+			},
+			{
+				"appearance": "Aluminium - eloxiert, glänzend (Grau)",
+				"kind": "metal",
+				"roughness": 0.12,
+				"parts": [
+					"hammerhead (3)"
+				]
+			},
+			{
+				"appearance": "Aluminium - satiniert",
+				"kind": "metal",
+				"roughness": 0.26,
+				"parts": [
+					"pulley_30t_5mm"
+				]
+			},
+			{
+				"appearance": "Aluminium - glasperlengestrahlt",
+				"kind": "metal",
+				"roughness": 0.45,
+				"parts": [
+					"pulley_30t_8mm"
+				]
+			},
+			{
+				"appearance": "Stahl 10.9 / 12.9, Schwarz",
+				"kind": "metal",
+				"roughness": 0.37,
+				"parts": [
+					"iso10642_m4x25",
+					"iso10642_m5x16",
+					"iso10642_m5x20",
+					"iso10642_m5x30",
+					"iso4762_m3x12",
+					"iso4762_m3x30",
+					"iso4762_m4x16"
+				]
+			}
+		],
+		"napplet": false
 	}
 }

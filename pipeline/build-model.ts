@@ -37,6 +37,8 @@ export type ModelConfig = {
 	 * own keep it; glass applies to the whole body. `appearance` names the Fusion appearance the entry came from.
 	 */
 	materials?: { appearance: string; kind: 'metal' | 'glass'; roughness?: number; parts: string[] }[];
+	/** false keeps the model out of the napplet, whose one file carries the latest version of every model it lists. */
+	napplet?: boolean;
 };
 type Finish = { kind: 'metal' | 'glass'; roughness?: number };
 type Group = { appearance: string | null; geometry: Geometry };
