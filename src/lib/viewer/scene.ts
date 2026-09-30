@@ -54,6 +54,38 @@ export interface CanvasTool {
 
 type Target = { mesh: THREE.Mesh; part: Part; sphere: THREE.Sphere; inverse: THREE.Matrix4; mirrored: boolean; capped: boolean };
 
+/** What the viewer asks of the GPU. */
+export type RenderOptions = {
+	antialias: boolean;
+	maxPixelRatio: number;
+	shadowSize: number;
+	environment?: boolean;
+	shadowType?: 'pcf' | 'basic';
+};
+
+/**
+ * Touch screens get no multisampling, a smaller shadow map and plain shadow sampling. At phone pixel densities
+ * multisampling hardly shows, yet it is most of a frame's memory. PCF shadows sample the depth map through the GPU's
+ * comparison sampler, which makes the PowerVR in the Pixel 10 lose the WebGL context on the first frame; Chromium then
+ * refuses WebGL to the whole site until the browser restarts. A PowerVR found on any device gets plain sampling too.
+ */
+export function defaultRenderOptions(): RenderOptions {
+	const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+	return touch
+		? { antialias: false, maxPixelRatio: 2, shadowSize: 1024, shadowType: 'basic' }
+		: { antialias: true, maxPixelRatio: 2, shadowSize: 2048 };
+}
+
+const SHADOW_TYPES = { pcf: THREE.PCFShadowMap, basic: THREE.BasicShadowMap };
+
+/** Whether the GPU is a PowerVR, as far as the browser tells. */
+function isPowerVR(gl: WebGLRenderingContext | WebGL2RenderingContext) {
+	const named = String(gl.getParameter(gl.RENDERER));
+	if (named !== 'WebKit WebGL') return /PowerVR|Imagination/i.test(named);
+	const info = gl.getExtension('WEBGL_debug_renderer_info');
+	return !!info && /PowerVR|Imagination/i.test(String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)));
+}
+
 const VIEWS: Record<NamedView, [number, number, number]> = {
 	iso: [1, -1, 0.75],
 	front: [0, -1, 0],
@@ -86,6 +118,9 @@ export class Viewer {
 	/** Called when the user finishes moving the camera. */
 	onCameraChange: () => void = () => {};
 	onPick: (part: Part | null) => void = () => {};
+	/** The browser dropped the WebGL context (the driver reset it), and gave it back. */
+	onContextLost: () => void = () => {};
+	onContextRestored: () => void = () => {};
 
 	#dirty = true;
 	#loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -104,21 +139,39 @@ export class Viewer {
 	#raycaster = new THREE.Raycaster();
 	#projected = new THREE.Vector3();
 
-	constructor(canvas: HTMLCanvasElement) {
-		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-		this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+	constructor(canvas: HTMLCanvasElement, options: RenderOptions = defaultRenderOptions()) {
+		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: options.antialias, powerPreference: 'high-performance' });
+		this.renderer.setPixelRatio(Math.min(devicePixelRatio, options.maxPixelRatio));
 		this.renderer.toneMapping = THREE.NeutralToneMapping;
 		this.renderer.localClippingEnabled = true;
-		this.renderer.shadowMap.enabled = true;
+		this.renderer.shadowMap.enabled = options.shadowSize > 0;
 		// PCF blurs by the light's shadow.radius; three.js dropped PCFSoftShadowMap and warned on every load.
-		this.renderer.shadowMap.type = THREE.PCFShadowMap;
+		const shadowType = options.shadowType ?? (isPowerVR(this.renderer.getContext()) ? 'basic' : 'pcf');
+		this.renderer.shadowMap.type = SHADOW_TYPES[shadowType];
+		const environment = options.environment ?? true;
+		if (environment) this.#environment();
+		// three.js keeps a lost context restorable. Once it is back, the environment map, which only ever lived on the GPU,
+		// is drawn again; everything else uploads with the next frame. Shadows step down so an unknown GPU that choked on
+		// them does not choke again: plain sampling after the first loss, none after the second.
+		let losses = 0;
+		canvas.addEventListener('webglcontextlost', () => {
+			losses++;
+			this.onContextLost();
+		});
+		canvas.addEventListener('webglcontextrestored', () => {
+			if (losses >= 2 || this.renderer.shadowMap.type === THREE.BasicShadowMap) {
+				this.renderer.shadowMap.enabled = false;
+				this.#light.castShadow = false;
+			} else this.renderer.shadowMap.type = THREE.BasicShadowMap;
+			this.#light.shadow.map?.dispose();
+			this.#light.shadow.map = null;
+			if (environment) this.#environment();
+			this.requestRender();
+			this.onContextRestored();
+		});
 
-		const pmrem = new THREE.PMREMGenerator(this.renderer);
-		this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-		pmrem.dispose();
-
-		this.#light.castShadow = true;
-		this.#light.shadow.mapSize.set(2048, 2048);
+		this.#light.castShadow = options.shadowSize > 0;
+		if (options.shadowSize > 0) this.#light.shadow.mapSize.set(options.shadowSize, options.shadowSize);
 		this.#light.shadow.radius = 6;
 		this.#light.shadow.bias = -0.0005;
 		this.scene.add(this.#light, this.#light.target);
@@ -186,6 +239,27 @@ export class Viewer {
 		this.#dirty = true;
 	}
 
+	/** What the renderer asked for and holds, for debugging on a device. */
+	describe() {
+		const gl = this.renderer.getContext();
+		const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+		const { memory, render } = this.renderer.info;
+		const types: Record<number, string> = { [THREE.PCFShadowMap]: 'pcf', [THREE.BasicShadowMap]: 'basic' };
+		const type = types[this.renderer.shadowMap.type] ?? '?';
+		return `${size.x}×${size.y} px, antialias ${gl.getContextAttributes()?.antialias ? 'on' : 'off'}, shadow ${this.#light.castShadow ? `${this.#light.shadow.mapSize.x} ${type}` : 'off'}, ` +
+			`${memory.geometries} geometries, ${memory.textures} textures, ${render.calls} draw calls, max texture ${gl.getParameter(gl.MAX_TEXTURE_SIZE)}`;
+	}
+
+	/** The room light the metal and glass reflect, rendered into a texture on the GPU. */
+	#environment() {
+		const pmrem = new THREE.PMREMGenerator(this.renderer);
+		const room = new RoomEnvironment();
+		this.scene.environment?.dispose();
+		this.scene.environment = pmrem.fromScene(room, 0.04).texture;
+		room.dispose();
+		pmrem.dispose();
+	}
+
 	/** Hands the canvas's clicks and overlay to a tool (null gives them back). */
 	setTool(tool: CanvasTool | null) {
 		if (this.#tool && this.#tool !== tool) this.#tool.dispose();
@@ -249,7 +323,8 @@ export class Viewer {
 			if (!mesh.isMesh) return;
 			mesh.castShadow = true;
 			mesh.receiveShadow = true;
-			mesh.geometry.computeBoundsTree();
+			// Instances share their geometry: one BVH serves them all.
+			if (!mesh.geometry.boundsTree) mesh.geometry.computeBoundsTree();
 			// Surfaces sit a hair behind their edge lines so the lines never flicker.
 			const material = mesh.material as THREE.MeshStandardMaterial;
 			material.polygonOffset = true;
