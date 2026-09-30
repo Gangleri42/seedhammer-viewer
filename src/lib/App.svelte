@@ -11,7 +11,7 @@
 	import type { MeasureStatus, MeasureTool, Outcome } from '$lib/viewer/measure/tool';
 	import type { Part, PartIndex } from '$lib/viewer/parts';
 	import { applyVisibility } from '$lib/viewer/parts';
-	import type { NamedView, Viewer } from '$lib/viewer/scene';
+	import type { NamedView, RenderOptions, Viewer } from '$lib/viewer/scene';
 
 	let { host }: { host: Host } = $props();
 
@@ -61,6 +61,23 @@
 	});
 
 	const mb = (bytes: number) => `${(bytes / 1e6).toFixed(1)} MB`;
+	const CONTEXT_LOST = 'The graphics driver stopped the 3D view. Reload the page; if it stays blank, close the tab and open it again.';
+
+	/**
+	 * Development only: ?aa=0&dpr=1&shadow=0&stype=pcf&env=0 override what the viewer asks of the GPU, and ?debug shows
+	 * what it got, to find what a device chokes on.
+	 */
+	function devRenderOptions(defaults: RenderOptions): RenderOptions {
+		const query = new URLSearchParams(location.search);
+		const number = (key: string, fallback: number) => (query.has(key) && Number.isFinite(Number(query.get(key))) ? Number(query.get(key)) : fallback);
+		return {
+			antialias: query.has('aa') ? query.get('aa') !== '0' : defaults.antialias,
+			maxPixelRatio: number('dpr', defaults.maxPixelRatio),
+			shadowSize: number('shadow', defaults.shadowSize),
+			environment: query.get('env') !== '0',
+			shadowType: (['pcf', 'basic'] as const).find((t) => t === query.get('stype')) ?? defaults.shadowType
+		};
+	}
 	let homeCamera = '';
 	const cameraKey = (camera: ViewState['camera']) => encode({ ...defaultState(), camera });
 
@@ -76,10 +93,14 @@
 		let disposed = false;
 		let instance: Viewer | undefined;
 		import('$lib/viewer/scene')
-			.then(async ({ Viewer, meshoptAvailable }) => {
+			.then(async ({ Viewer, defaultRenderOptions, meshoptAvailable }) => {
 				wasm = await meshoptAvailable();
 				if (disposed) return;
-				instance = new Viewer(canvas);
+				instance = new Viewer(canvas, import.meta.env.DEV ? devRenderOptions(defaultRenderOptions()) : undefined);
+				instance.onContextLost = () => (error = CONTEXT_LOST);
+				instance.onContextRestored = () => {
+					if (error === CONTEXT_LOST) error = '';
+				};
 				instance.onCameraChange = () => {
 					if (progress !== null) return;
 					const camera = instance!.getCamera();
@@ -92,7 +113,10 @@
 			})
 			.catch((err: Error) => {
 				progress = null;
-				error = `Could not start the 3D view: ${err.message}`;
+				// Browsers turn WebGL off for a site for a while after its graphics crashed.
+				error = /webgl/i.test(err.message)
+					? 'Could not start the 3D view: this browser gives the page no WebGL right now. After a graphics crash browsers block it for a while; close the tab, or the browser, and open it again.'
+					: `Could not start the 3D view: ${err.message}`;
 			});
 		host.models
 			.index()
@@ -161,6 +185,7 @@
 				homeCamera = cameraKey(viewer!.getCamera());
 				if (wanted.camera) viewer!.setCamera(wanted.camera);
 				progress = null;
+				if (import.meta.env.DEV && new URLSearchParams(location.search).has('debug')) setTimeout(() => (notice = viewer!.describe()), 1500);
 				if (!wanted.camera) view.camera = null;
 			})
 			.catch((err: Error) => {
