@@ -1,3 +1,4 @@
+import type { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { X, Y, Z, arc, cone, cylinder, disc, line, plate, point, rectangle, sampled, sphere, torus, v } from './fixtures';
 import { Measurer, formatRow, formatValue } from './measure';
@@ -261,30 +262,32 @@ describe('Measurer pairs', () => {
 		exactly(measurer.measure(a, b), 'distance', 5);
 	});
 
-	it('measures two 5k-triangle cylinders in about 50 ms', () => {
-		const pair = () => [cylinder(v(0, 0, 0), Z, X, 2, 5, 0, TAU, 2500), cylinder(v(10, 0, 0), Z, X, 3, 5, 0, TAU, 2500)];
-		const [warmA, warmB] = pair();
-		new Measurer().measure(warmA, warmB);
-		const [a, b] = pair();
-		const start = performance.now();
-		const m = new Measurer().measure(a, b);
-		const elapsed = performance.now() - start;
-		exactly(m, 'distance', 5);
-		expect(elapsed).toBeLessThan(50);
-	});
-
-	it('measures the same pair tilted off the world axes as quickly', () => {
-		const axis = v(1, 1, 1).normalize(), ref = v(1, -1, 0).normalize();
+	/** Two 5k-triangle cylinders 10 apart along ref, measured once warmed up. */
+	function timed(axis: Vector3, ref: Vector3) {
 		const pair = () => [cylinder(v(0, 0, 0), axis, ref, 2, 5, 0, TAU, 2500), cylinder(ref.clone().multiplyScalar(10), axis, ref, 3, 5, 0, TAU, 2500)];
 		const [warmA, warmB] = pair();
 		new Measurer().measure(warmA, warmB);
 		const [a, b] = pair();
 		const start = performance.now();
 		const m = new Measurer().measure(a, b);
-		const elapsed = performance.now() - start;
+		return { m, elapsed: performance.now() - start };
+	}
+
+	it('measures two 5k-triangle cylinders quickly', () => {
+		const { m, elapsed } = timed(Z, X);
 		exactly(m, 'distance', 5);
-		exactly(m, 'centre', 10);
-		expect(elapsed).toBeLessThan(50);
+		// About 5 ms here and 25 on a shared CI runner; the pairwise search this replaced took seconds.
+		expect(elapsed).toBeLessThan(500);
+	});
+
+	it('measures the same pair tilted off the world axes about as quickly', () => {
+		const aligned = timed(Z, X);
+		const tilted = timed(v(1, 1, 1).normalize(), v(1, -1, 0).normalize());
+		exactly(tilted.m, 'distance', 5);
+		exactly(tilted.m, 'centre', 10);
+		// Against the aligned pair on the same machine, so a slow runner cannot fail it; boxes loosened by the tilt made
+		// the search 20 to 40 times slower before it learned to align with the faces.
+		expect(tilted.elapsed).toBeLessThan(aligned.elapsed * 4 + 25);
 	});
 });
 
