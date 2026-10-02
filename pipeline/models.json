@@ -147,6 +147,19 @@
 					"Senkkopfschraube mit Innensechskant ISO 10642 - M4 x 20 Stahl 8.8 Einfach",
 					"Senkkopfschraube mit Innensechskant ISO 10642 - M5 x 30 Stahl 8.8 Einfach"
 				]
+			},
+			{
+				"appearance": "Kupfer - poliert",
+				"kind": "metal",
+				"roughness": 0.08,
+				"parts": [
+					"x_carriage_plate (6)",
+					"x_carriage_plate (7)",
+					"y_sled (3)",
+					"y_sled (4)",
+					"y_sled (5)",
+					"y_sled (6)"
+				]
 			}
 		]
 	},
