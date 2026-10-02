@@ -67,18 +67,37 @@ jobs:
           HARDWARE_DIR: sh-hardware
           CONVERT: python
       - run: npm run build
+      # The napplet is checked here but published only from a machine with the signer (npm run publish:nostr).
+      - run: npm run build:napplet
+      # Every test before anything is uploaded, so a failure never leaves a second Pages artifact behind for a re-run.
+      - run: npm test
       - uses: actions/upload-pages-artifact@v5
         with:
           path: build
-      # The napplet is checked here but published only from a machine with the signer (npm run publish:nostr).
-      - run: npm run build:napplet
-      - run: npm test
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:conformance
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: napplet
           path: dist-napplet
+
+  # The NAP conformance suite needs a browser download, which can stall; it runs beside the deploy, not before it.
+  conformance:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          name: napplet
+          path: dist-napplet
+      - run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
+      - run: npm run test:conformance
 
   deploy:
     needs: build
