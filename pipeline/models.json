@@ -30,9 +30,26 @@
 				"kind": "metal",
 				"roughness": 0.0,
 				"parts": [
-					"Senkkopfschraube mit Innensechsrund ISO 14581 - M2x5 Aluminium Einfach",
-					"Skeleton"
+					"Senkkopfschraube mit Innensechsrund ISO 14581 - M2x5 Aluminium Einfach"
 				]
+			},
+			{
+				"appearance": "Chrom - Schwarz",
+				"kind": "metal",
+				"roughness": 0.0,
+				"parts": [
+					"Skeleton"
+				],
+				"until": 21
+			},
+			{
+				"appearance": "Polykarbonat (klar)",
+				"kind": "glass",
+				"roughness": 0.0,
+				"parts": [
+					"Skeleton"
+				],
+				"from": 22
 			},
 			{
 				"appearance": "Glas (klar)",
