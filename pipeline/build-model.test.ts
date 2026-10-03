@@ -23,6 +23,6 @@ describe('finishes by version', () => {
 	it('shows the Seed housing as black chrome up to v21 and as clear glass from v22', () => {
 		const seed = (models as Record<string, ModelConfig>).seed.materials;
 		expect(finishesFor(seed, 20).get('Skeleton')).toMatchObject({ kind: 'metal', appearance: 'Chrom - Schwarz' });
-		expect(finishesFor(seed, 22).get('Skeleton')).toMatchObject({ kind: 'glass', appearance: 'Polykarbonat (klar)' });
+		expect(finishesFor(seed, 22).get('Skeleton')).toMatchObject({ kind: 'glass', appearance: 'Polykarbonat (klar)', opacity: 0.4 });
 	});
 });
