@@ -46,6 +46,7 @@
 				"appearance": "Polykarbonat (klar)",
 				"kind": "glass",
 				"roughness": 0.0,
+				"opacity": 0.4,
 				"parts": [
 					"Skeleton"
 				],

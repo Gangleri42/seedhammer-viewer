@@ -36,12 +36,21 @@ export type ModelConfig = {
 	 * its bodies) metal or glass. Metal applies to faces in the body's own colour only, so faces with a colour of their
 	 * own keep it; glass applies to the whole body. `appearance` names the Fusion appearance the entry came from.
 	 * `from` and `until` limit an entry to a range of versions (both inclusive), for a part whose material changed.
+	 * `opacity` sets a glass entry's opacity, which otherwise follows how dark its tint is.
 	 */
-	materials?: { appearance: string; kind: 'metal' | 'glass'; roughness?: number; parts: string[]; from?: number; until?: number }[];
+	materials?: {
+		appearance: string;
+		kind: 'metal' | 'glass';
+		roughness?: number;
+		opacity?: number;
+		parts: string[];
+		from?: number;
+		until?: number;
+	}[];
 	/** false keeps the model out of the napplet, whose one file carries the latest version of every model it lists. */
 	napplet?: boolean;
 };
-type Finish = { kind: 'metal' | 'glass'; roughness?: number };
+type Finish = { kind: 'metal' | 'glass'; roughness?: number; opacity?: number };
 type Group = { appearance: string | null; geometry: Geometry };
 type Solid = { groups: Group[]; mesh: SolidMesh };
 
@@ -213,9 +222,9 @@ export async function buildModel(src: string, config: ModelConfig): Promise<Buil
 			.setRoughnessFactor(Math.max(roughness, 0.05)).setDoubleSided(false);
 		if (kind === 'metal') material.setMetallicFactor(1).setBaseColorFactor([...color, 1]);
 		else if (kind === 'glass') {
-			// Clear glass nearly vanishes, tinted glass stays dark: opacity follows how dark the tint is.
+			// Clear glass nearly vanishes, tinted glass stays dark: opacity follows how dark the tint is, unless the entry sets it.
 			const luminance = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
-			material.setMetallicFactor(0).setBaseColorFactor([...color, 0.1 + 0.6 * (1 - luminance)]).setAlphaMode('BLEND');
+			material.setMetallicFactor(0).setBaseColorFactor([...color, finish?.opacity ?? (0.1 + 0.6 * (1 - luminance))]).setAlphaMode('BLEND');
 		}
 		else material.setMetallicFactor(0).setBaseColorFactor([...color, 1]);
 		material.setExtras({ appearance: name, kind });
@@ -223,7 +232,7 @@ export async function buildModel(src: string, config: ModelConfig): Promise<Buil
 	}
 
 	function materialFor(name: string | null, finish?: Finish) {
-		const key = `${name}|${finish?.kind ?? ''}|${finish?.roughness ?? ''}`;
+		const key = `${name}|${finish?.kind ?? ''}|${finish?.roughness ?? ''}|${finish?.opacity ?? ''}`;
 		let material = materials.get(key);
 		if (!material) materials.set(key, (material = makeMaterial(name, finish)));
 		return material;
