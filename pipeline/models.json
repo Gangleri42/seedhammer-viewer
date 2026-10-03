@@ -9,6 +9,8 @@
 				"kind": "metal",
 				"roughness": 0.26,
 				"parts": [
+					"BW0041CG-L2.5W1.0H1.8",
+					"BW0041CG-L2.5W1.0H1.8 (1)",
 					"LCM_HX0242S008 (16)",
 					"LCM_HX0242S008 (8)",
 					"NFC_springs_BW0041CG"
@@ -19,7 +21,8 @@
 				"kind": "glass",
 				"roughness": 0.0,
 				"parts": [
-					"CAM_OV7251_640x480 (4)"
+					"CAM_OV7251_640x480 (4)",
+					"CAM_OV7251_sample (5)"
 				]
 			},
 			{

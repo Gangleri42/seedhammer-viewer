@@ -100,6 +100,33 @@ function upFor(direction: THREE.Vector3) {
 	return Math.abs(direction.z) > 0.99 ? new THREE.Vector3(0, direction.z > 0 ? 1 : -1, 0) : new THREE.Vector3(0, 0, 1);
 }
 
+/** Premultiplied output for glass: the body's light scales with alpha, the reflected light does not. */
+const glassShader = (shader: THREE.WebGLProgramParametersWithUniforms) => {
+	shader.fragmentShader = shader.fragmentShader.replace(
+		'#include <opaque_fragment>',
+		'gl_FragColor = vec4( totalDiffuse * diffuseColor.a + totalSpecular + totalEmissiveRadiance, diffuseColor.a );'
+	);
+};
+
+/**
+ * Glass keeps its faint opacity, but its reflections stay at full strength instead of fading with it, so clear glass
+ * reads as a surface. Clones (the selection tint) do not inherit onBeforeCompile, so they are passed through here too.
+ */
+function reflectiveGlass(material: THREE.MeshStandardMaterial) {
+	if (material.userData.kind !== 'glass' || material.onBeforeCompile === glassShader) return;
+	material.blending = THREE.CustomBlending;
+	material.blendEquation = THREE.AddEquation;
+	material.blendSrc = THREE.OneFactor;
+	material.blendDst = THREE.OneMinusSrcAlphaFactor;
+	material.onBeforeCompile = glassShader;
+	material.customProgramCacheKey = () => 'reflective-glass';
+	// A flat pane reflects only a few percent head-on; a stronger room reflection and a faint body make small windows
+	// visible.
+	material.envMapIntensity = 6;
+	material.opacity = Math.max(material.opacity, 0.2);
+	material.needsUpdate = true;
+}
+
 export class Viewer {
 	readonly renderer: THREE.WebGLRenderer;
 	readonly scene = new THREE.Scene();
@@ -330,6 +357,7 @@ export class Viewer {
 			material.polygonOffset = true;
 			material.polygonOffsetFactor = 1;
 			material.polygonOffsetUnits = 1;
+			reflectiveGlass(material);
 		});
 		this.scene.add(this.model);
 		this.model.updateMatrixWorld(true);
@@ -480,6 +508,7 @@ export class Viewer {
 				tinted = source.clone();
 				tinted.emissive = this.#accent.clone();
 				tinted.emissiveIntensity = 0.4;
+				reflectiveGlass(tinted);
 				this.#highlight.set(source, tinted);
 			}
 			tinted.clippingPlanes = source.clippingPlanes;
