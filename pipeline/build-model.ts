@@ -35,8 +35,9 @@ export type ModelConfig = {
 	 * STEP carries colours, not materials. Each entry makes the listed bodies (by body name, or component name for all
 	 * its bodies) metal or glass. Metal applies to faces in the body's own colour only, so faces with a colour of their
 	 * own keep it; glass applies to the whole body. `appearance` names the Fusion appearance the entry came from.
+	 * `from` and `until` limit an entry to a range of versions (both inclusive), for a part whose material changed.
 	 */
-	materials?: { appearance: string; kind: 'metal' | 'glass'; roughness?: number; parts: string[] }[];
+	materials?: { appearance: string; kind: 'metal' | 'glass'; roughness?: number; parts: string[]; from?: number; until?: number }[];
 	/** false keeps the model out of the napplet, whose one file carries the latest version of every model it lists. */
 	napplet?: boolean;
 };
@@ -118,6 +119,16 @@ export type BuildResult = {
 	measureStats: MeasureStats & { json: number; mirrored: number };
 };
 
+/** The finish of each listed part in `version`; a later entry overrides an earlier one for the same part. */
+export function finishesFor(materials: ModelConfig['materials'], version: number) {
+	const finishes = new Map<string, Finish>();
+	for (const entry of materials ?? []) {
+		if ((entry.from ?? -Infinity) > version || (entry.until ?? Infinity) < version) continue;
+		for (const part of entry.parts) finishes.set(part, entry);
+	}
+	return finishes;
+}
+
 /** Builds the GLB for the export in `src`. Throws if the result would carry private data. */
 export async function buildModel(src: string, config: ModelConfig): Promise<BuildResult> {
 	await MeshoptSimplifier.ready;
@@ -126,8 +137,7 @@ export async function buildModel(src: string, config: ModelConfig): Promise<Buil
 	const scale = manifest.units === 'mm' ? 1 : 10;
 	const stats = { trianglesIn: 0, trianglesOut: 0, bodies: 0 };
 
-	const finishes = new Map<string, Finish>();
-	for (const entry of config.materials ?? []) for (const part of entry.parts) finishes.set(part, entry);
+	const finishes = finishesFor(config.materials, manifest.version);
 	const finishOf = (idx: number) => finishes.get(manifest.meshes[idx].body) ?? finishes.get(manifest.meshes[idx].component);
 
 	/**
