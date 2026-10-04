@@ -6,15 +6,16 @@
 //   4. merges and publishes the relay list (10002) and server list (10063)
 //   5. publishes the site manifest (35128) with a snapshot (5128), then the napplet manifest (35129) with its snapshot (5129)
 //   6. fetches everything back from the relays and checks signatures and aggregates
-// Usage: npm run publish:nostr -- [--models] [--if-changed] [--dry-run] [--skip-build] [--skip-napplet] [--replace-lists] [--no-snapshot] [--min-public N]
+// Usage: npm run publish:nostr -- [--models] [--if-changed] [--dry-run] [--skip-build] [--skip-napplet] [--replace-lists] [--no-snapshot] [--min-public N] [--overview FILE]
 // It runs on the forge only: the forge's container sets SEEDHAMMER_PUBLISHER=forge and NOSTR_NSEC_FILE, and anywhere
 // else the script refuses to start, dry runs included, since those talk to the relays and servers too.
 // The models are built, not committed: run `npm run models` first, or pass --models to have it run here.
 // --if-changed stops early when the manifests on the relays already describe this build. The relays are the record of
-// what is published; nothing about a deploy is written back into the repository.
+// what is published; nothing about a deploy is written back into the repository. --overview writes, after a publish,
+// every file with its Blossom address and the nevent of the manifest and snapshot that publish it (nostr/overview.ts).
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import type { Event, EventTemplate } from 'nostr-tools/core';
 import * as nip19 from 'nostr-tools/nip19';
@@ -25,7 +26,8 @@ import { KIND, LOOKUP_RELAYS, mimeOf, readConfig } from './nostr/config.ts';
 import { mergeRelayList, mergeServerList } from './nostr/lists.ts';
 import { aggregate, collectFiles, nappletTemplate, siteTemplate, snapshotTemplate, tagValue, validate, verifiedPairs, type FileEntry } from './nostr/manifest.ts';
 import { siteOrigin, snapshotOrigin } from './nostr/nsite.ts';
-import { Relays } from './nostr/relays.ts';
+import { overview } from './nostr/overview.ts';
+import { Relays, type PublishReport } from './nostr/relays.ts';
 import { openSigner, type Signer } from './nostr/signer.ts';
 
 const log = (line = '') => console.log(line);
@@ -52,7 +54,8 @@ const { values } = (() => {
 				'skip-napplet': { type: 'boolean' },
 				'replace-lists': { type: 'boolean' },
 				'no-snapshot': { type: 'boolean' },
-				'min-public': { type: 'string', default: '3' }
+				'min-public': { type: 'string', default: '3' },
+				overview: { type: 'string' }
 			}
 		});
 	} catch (err) {
@@ -69,7 +72,8 @@ const opts = {
 	skipNapplet: !!values['skip-napplet'],
 	replaceLists: !!values['replace-lists'],
 	snapshot: !values['no-snapshot'],
-	minPublic
+	minPublic,
+	overview: values.overview
 };
 
 const config = readConfig();
@@ -295,10 +299,12 @@ const siteEntries: FileEntry[] = [...site, ...carried];
 // What the manifests on the relays list was verified on their servers before they went out; finding those files
 // there again while placing is enough.
 const verifiedBefore = verifiedPairs([current.site, current.napplet]);
+const downloaded = new Set<string>();
 for (const server of [...surviving]) {
 	const bad: string[] = [];
 	const unverified = finalEntries.filter((entry) => !verifiedBefore.has(`${server} ${entry.sha256}`));
 	for (const entry of unverified) {
+		downloaded.add(entry.sha256);
 		const r = await verify(server, entry);
 		if (!r.ok) bad.push(`${entry.path}: ${r.status} ${r.reason}`);
 	}
@@ -357,10 +363,12 @@ async function publishManifest(name: string, build: (created_at: number) => Even
 		fail(`no relay accepted the ${name} manifest`);
 	}
 	let snapshot: Event | null = null;
+	let snapshotReport: PublishReport = {};
 	if (opts.snapshot) {
 		snapshot = await signer.signEvent(snapshotTemplate(event, ownRelay, event.created_at + 1));
 		validate(snapshot, { snapshot: true });
-		log(`  ${name} snapshot ${snapshot.kind} ${snapshot.id.slice(0, 12)}… → ${report(await relays.publish(config.relays, snapshot))}`);
+		snapshotReport = await relays.publish(config.relays, snapshot);
+		log(`  ${name} snapshot ${snapshot.kind} ${snapshot.id.slice(0, 12)}… → ${report(snapshotReport)}`);
 	}
 	// Read back: the manifest must come back from at least two relays, valid, with the aggregate we computed.
 	const back = await relays.latest(readRelays, { kinds: [kind], authors: [config.pubkey], '#d': [config.id] });
@@ -371,7 +379,8 @@ async function publishManifest(name: string, build: (created_at: number) => Even
 	}
 	validate(back.event);
 	log(`  ${name} read back from ${holders.length} relays, signature and aggregate verified${holders.length < 2 ? ' (WARNING: fewer than two relays hold it)' : ''}`);
-	return { event, snapshot };
+	const snapshotRelays = Object.entries(snapshotReport).filter(([, r]) => r.ok).map(([relay]) => relay);
+	return { event, relays: holders, snapshot, snapshotRelays };
 }
 
 log('\npublishing the site');
@@ -380,7 +389,7 @@ const siteResult = await publishManifest(
 	(created_at) => siteTemplate({ id: config.id, entries: siteEntries, servers: serverTags, title: config.title, description: config.description, source: config.source, created_at }),
 	KIND.site
 );
-let nappletResult: { event: Event; snapshot: Event | null } | null = null;
+let nappletResult: Awaited<ReturnType<typeof publishManifest>> | null = null;
 if (sidecar) {
 	log('\npublishing the napplet');
 	nappletResult = await publishManifest(
@@ -427,5 +436,19 @@ log(`  naddr     ${naddr(KIND.site)}`);
 if (nappletResult) {
 	log(`  napplet   ${naddr(KIND.napplet)}`);
 	if (nappletResult.snapshot) log(`            snapshot nevent ${nip19.neventEncode({ id: nappletResult.snapshot.id, author: config.pubkey, kind: nappletResult.snapshot.kind, relays: [ownRelay] })}`);
+}
+// A record only: once the manifests are out, nothing here may fail the run, or the publish would be repeated.
+if (opts.overview) {
+	try {
+		const viewer = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+		const record = overview({
+			author: config.pubkey, id: config.id, relay: ownRelay, gateway, servers: serverTags, viewer,
+			site: siteResult, napplet: nappletResult, files: { site, napplet, carried }, downloaded
+		});
+		writeFileSync(opts.overview, `${JSON.stringify(record, null, '\t')}\n`);
+		log(`  overview  ${opts.overview}`);
+	} catch (err) {
+		log(`  WARNING: no overview written: ${err instanceof Error ? err.message : err}`);
+	}
 }
 await shutdown();
