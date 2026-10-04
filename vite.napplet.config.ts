@@ -6,6 +6,7 @@ import { nip5aManifest } from '@napplet/vite-plugin';
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig, type Plugin } from 'vite';
 import { siteOrigin } from './pipeline/nostr/nsite.ts';
+import { openingFiles } from './src/lib/models/boards.ts';
 import type { ModelIndex } from './src/lib/models/types.ts';
 import { ARCHETYPE, CONVENTION } from './src/lib/state/archetype.ts';
 
@@ -17,7 +18,7 @@ export const REQUIRES = ['inc', 'resource', 'theme', 'link'];
 type SiteConfig = { id: string; pubkey?: string; servers: string[]; gatewayHostnames?: string[] };
 const site: SiteConfig = JSON.parse(readFileSync(at('./.nsite/config.json'), 'utf8'));
 
-/** Build-time data: the manifest, the latest GLB and measurement file of each model, and where the site lives. */
+/** Build-time data: the manifest, the files each model opens with, and where the site lives. */
 function models(): Plugin {
 	const id = 'virtual:seedhammer-models';
 	const resolved = `\0${id}`;
@@ -33,10 +34,8 @@ function models(): Plugin {
 			const index: ModelIndex = { ...all, models: Object.fromEntries(carried) };
 			const inline: Record<string, string> = {};
 			for (const entry of Object.values(index.models)) {
-				const latest = entry.versions.find((v) => v.version === entry.latest) ?? entry.versions[0];
-				for (const file of [latest.glb, latest.measure]) {
-					if (file) inline[file.sha256] = readFileSync(at(`./static/models/${file.path}`)).toString('base64');
-				}
+				// What each model opens with rides inside: a shell may have no other way to fetch it.
+				for (const file of openingFiles(entry)) inline[file.sha256] = readFileSync(at(`./static/models/${file.path}`)).toString('base64');
 			}
 			const shareOrigin = process.env.VITE_SHARE_ORIGIN ?? 'https://viewer.seedhammer.space';
 			const gateway = site.gatewayHostnames?.[0];

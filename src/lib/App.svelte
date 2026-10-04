@@ -2,7 +2,8 @@
 	import { onMount, untrack } from 'svelte';
 	import type { Host, ShareLink, StepAction } from '$lib/host/host';
 	import { readMeasure, type MeasureFile } from '$lib/measure/format';
-	import type { ModelIndex } from '$lib/models/types';
+	import { boardParam, chooseBoard, filesFor, revisionLabel, type BoardChoice } from '$lib/models/boards';
+	import type { ModelFile, ModelIndex } from '$lib/models/types';
 	import { decode, defaultState, encode, sameRef, DEFAULT_MODEL, type Axis, type Cut, type MeasureRef, type ViewState } from '$lib/state/hash';
 	import { theme } from '$lib/theme.svelte';
 	import MeasurePanel from '$lib/ui/MeasurePanel.svelte';
@@ -27,6 +28,7 @@
 	let panelOpen = $state(true);
 	let sectionOpen = $state(false);
 	let shareOpen = $state(false);
+	let stepOpen = $state(false);
 	let pin = $state(false);
 	let copied = $state<string | null>(null);
 	let fallback = $state<{ label: string; text: string } | null>(null);
@@ -39,7 +41,7 @@
 	// Measure: open while the tool is up or while the view holds measured items (a link can bring them).
 	let measureOpen = $state(false);
 	let measureTool = $state.raw<MeasureTool | null>(null);
-	let measureData = $state.raw<{ key: string; data: MeasureFile } | null>(null);
+	let measureData = $state.raw<{ key: string; files: MeasureFile[] } | null>(null);
 	let measureStatus = $state<MeasureStatus>('loading');
 	let measureProgress = $state<number | null>(0);
 	let measureError = $state('');
@@ -51,7 +53,16 @@
 
 	const entry = $derived(index ? (index.models[view.model] ?? index.models[DEFAULT_MODEL]) : null);
 	const current = $derived(entry ? (entry.versions.find((v) => v.version === view.version) ?? entry.versions[0]) : null);
-	const key = $derived(current ? `${view.model}@${current.version}` : null);
+	// The board in the model's slot (src/lib/models/boards.ts). A board that failed to load shows as in CAD instead.
+	let brokenBoard = $state<string | null>(null);
+	const picked = $derived(entry && current ? chooseBoard(entry, current, view.board, view.version !== null) : null);
+	const choice = $derived.by((): BoardChoice => {
+		const c = picked?.choice ?? { kind: 'cad', possible: false };
+		return c.kind === 'upstream' && c.revision.id === brokenBoard ? { kind: 'cad', possible: true } : c;
+	});
+	const files = $derived(current ? filesFor(current, choice) : null);
+	const key = $derived(current ? `${view.model}@${current.version}:${choice.kind === 'upstream' ? choice.revision.id : 'cad'}` : null);
+	const pinnedBoard = $derived(choice.kind === 'upstream' ? ` and board ${choice.revision.commit}` : '');
 	const hidden = $derived(new Set(view.hidden));
 	const isolated = $derived(new Set(view.isolated));
 	const selectedPart = $derived(view.selected ? (parts?.byId.get(view.selected) ?? null) : null);
@@ -143,7 +154,7 @@
 	// simply drops whatever was loading.
 	let request = 0;
 	$effect(() => {
-		if (!viewer || !current || !key) return;
+		if (!viewer || !current || !key || !files) return;
 		const ticket = ++request;
 		const live = () => ticket === request;
 		if (key === loaded) {
@@ -155,22 +166,46 @@
 		const target = key;
 		const version = current.version;
 		const title = entry?.title ?? 'the model';
+		const shown = choice;
+		const missing = picked?.missing;
 		// Read once and untracked: the camera and the sliders change the view all the time and must not restart the load.
 		const wanted = untrack(() => $state.snapshot(view));
 		progress = 0;
 		error = '';
 		parts = null;
-		const file = wasm === false ? current.plain : current.glb;
+		// Hosts that block WebAssembly get the uncompressed model, which carries its CAD board.
+		if (wasm === false && shown.kind === 'upstream') {
+			notice = 'This host blocks WebAssembly, which the boards need; this is the board as in CAD.';
+			brokenBoard = shown.revision.id;
+			return;
+		}
+		const file = wasm === false ? current.plain : files.glb;
 		if (!file) {
 			progress = null;
 			error = `This host blocks WebAssembly, which the compressed model needs, and v${version} has no uncompressed copy.`;
 			return;
 		}
-		host.models
-			.bytes(file, (f) => {
-				if (live()) progress = f ?? 0;
+		const board = shown.kind === 'upstream' ? shown : null;
+		const sizes = [file.bytes, board?.revision.glb.bytes ?? 0];
+		const got = [0, 0];
+		const report = (i: number) => (f: number | null) => {
+			got[i] = (f ?? 0) * sizes[i];
+			if (live()) progress = (got[0] + got[1]) / (sizes[0] + sizes[1]);
+		};
+		// The board's own failures are named so (scene.ts boardError): those fall back to the CAD board, the model's do not.
+		const named = (err: Error) => Object.assign(err, { name: 'BoardError' });
+		Promise.all([host.models.bytes(file, report(0)), board ? host.models.bytes(board.revision.glb, report(1)).catch((err: Error) => Promise.reject(named(err))) : null])
+			.then(([buffer, boardBuffer]) => {
+				if (!live()) return null;
+				const attachment = board && boardBuffer && {
+					buffer: boardBuffer,
+					slot: board.slot.id,
+					fix: board.slot.fix,
+					name: 'Board',
+					component: `${board.track.source.repo} ${board.track.source.ref} @ ${board.revision.commit}`
+				};
+				return viewer!.loadBuffer(buffer, live, attachment);
 			})
-			.then((buffer) => (live() ? viewer!.loadBuffer(buffer, live) : null))
 			.then((index) => {
 				if (!index || !live()) return;
 				parts = index;
@@ -182,6 +217,12 @@
 					view.isolated = view.isolated.filter((id) => index.byId.has(id));
 					if (view.selected && !index.byId.has(view.selected)) view.selected = null;
 				}
+				if (missing && board) {
+					// The link's board is gone: its measured board items would land on another board's parts.
+					const onBoard = (id: string) => index.byId.get(id)?.object.userData.source === 1;
+					view.measure = view.measure.filter((ref) => !onBoard(ref.part));
+					notice = `Board ${missing} is no longer in ${board.track.source.repo}; this is the latest, ${board.revision.commit}.`;
+				}
 				homeCamera = cameraKey(viewer!.getCamera());
 				if (wanted.camera) viewer!.setCamera(wanted.camera);
 				progress = null;
@@ -191,6 +232,12 @@
 			.catch((err: Error) => {
 				if (!live()) return;
 				progress = null;
+				if (board && err.name === 'BoardError') {
+					// Show the model as exported instead; the effect runs again for it.
+					notice = `Could not load board ${board.revision.commit} (${err.message}); this is the board as in CAD.`;
+					brokenBoard = board.revision.id;
+					return;
+				}
 				error = `Could not load ${title}: ${err.message}`;
 			});
 	});
@@ -254,34 +301,46 @@
 			.finally(() => (toolLoading = false));
 	});
 
-	// The exact geometry for the version on screen, once the model is in; like the GLB, only the newest request counts.
+	// The exact geometry for the version on screen, once the model is in: the model's file and its board's, each made for
+	// its own GLB. Like the GLB, only the newest request counts.
 	let measureRequest = 0;
 	$effect(() => {
 		void measureRetry;
-		if (!measuring || !current || !key || loaded !== key) return;
+		if (!measuring || !current || !key || !files || loaded !== key) return;
 		if (measureData?.key === key) {
 			measureStatus = 'ready';
 			return;
 		}
-		const file = current.measure;
-		if (!file) {
+		if (!files.measure) {
 			measureStatus = 'unavailable';
 			return;
 		}
+		const wanted: { file: ModelFile; glb: string }[] = [{ file: files.measure, glb: files.glb.sha256 }];
+		if (files.board) wanted.push({ file: files.board.measure, glb: files.board.glb.sha256 });
 		const ticket = ++measureRequest;
-		const target = key, glb = current.glb.sha256;
+		const target = key;
+		const total = wanted.reduce((sum, w) => sum + w.file.bytes, 0);
+		const got = wanted.map(() => 0);
 		measureStatus = 'loading';
 		measureProgress = 0;
 		measureError = '';
-		host.models
-			.bytes(file, (f) => {
-				if (ticket === measureRequest) measureProgress = f;
-			})
-			.then(readMeasure)
-			.then((data) => {
+		Promise.all(
+			wanted.map(({ file, glb }, i) =>
+				host.models
+					.bytes(file, (f) => {
+						got[i] = (f ?? 0) * file.bytes;
+						if (ticket === measureRequest) measureProgress = got.reduce((a, b) => a + b, 0) / total;
+					})
+					.then(readMeasure)
+					.then((data) => {
+						if (data.glb !== glb) throw new Error('it belongs to another build of this model');
+						return data;
+					})
+			)
+		)
+			.then((loadedFiles) => {
 				if (ticket !== measureRequest) return;
-				if (data.glb !== glb) throw new Error('it belongs to another build of this model');
-				measureData = { key: target, data };
+				measureData = { key: target, files: loadedFiles };
 				measureStatus = 'ready';
 			})
 			.catch((err: Error) => {
@@ -296,7 +355,7 @@
 		measureTool?.setActive(measuring);
 	});
 	$effect(() => {
-		const data = measureData && measureData.key === loaded ? measureData.data : null;
+		const data = measureData && measureData.key === loaded ? measureData.files : null;
 		if (!measureTool) return;
 		measureTool.setModel(data);
 		if (!data) return;
@@ -318,9 +377,14 @@
 		measureTool?.setPrecision(precision);
 	});
 
-	/** Measured items only mean something for one version: a route that carries them names it. */
+	/**
+	 * Measured items only mean something for one version and board: a route that carries them names both. A route that
+	 * pins or unpins the version names the board on screen, whatever the other route's default would be.
+	 */
 	function routeOf(version: number | null) {
-		return encode({ ...view, version: view.measure.length ? (current?.version ?? version) : version });
+		const pinned = view.measure.length ? (current?.version ?? version) : version;
+		const board = pinned === view.version ? view.board : boardParam(choice, pinned !== null);
+		return encode({ ...view, version: pinned, board });
 	}
 
 	// Mirror the view into the route (the URL hash on the web) without adding history entries.
@@ -359,8 +423,18 @@
 		view.hidden = [];
 		view.isolated = [];
 	}
+	/** Puts a board revision (or "cad") into the slot; measured items belong to the board they were picked on. */
+	function pickBoard(value: string) {
+		if (!picked || !entry?.board) return;
+		// Picking a board that failed to load tries it again.
+		brokenBoard = null;
+		const pinned = view.version !== null;
+		view.board = value === 'cad' ? (pinned ? null : 'cad') : !pinned && value === entry.board.latest ? null : value;
+		view.measure = [];
+	}
 	function switchModel(model: string) {
 		if (model === view.model && view.version === null) return;
+		brokenBoard = null;
 		view = { ...defaultState(model), edges: view.edges, ortho: view.ortho };
 		notice = '';
 	}
@@ -370,7 +444,7 @@
 	}
 	function openMeasure() {
 		measureOpen = true;
-		sectionOpen = shareOpen = false;
+		sectionOpen = shareOpen = stepOpen = false;
 		if (narrow) panelOpen = false;
 	}
 	function closeMeasure() {
@@ -405,7 +479,7 @@
 				return;
 			}
 			view.selected = null;
-			sectionOpen = shareOpen = false;
+			sectionOpen = shareOpen = stepOpen = false;
 		}
 		if (e.key === 'f') viewer?.fit();
 		// Fusion's key for Measure.
@@ -438,7 +512,10 @@
 					aria-label="Version"
 					value={view.version ?? 'latest'}
 					onchange={(e) => {
-						view.version = e.currentTarget.value === 'latest' ? null : Number(e.currentTarget.value);
+						const next = e.currentTarget.value === 'latest' ? null : Number(e.currentTarget.value);
+						// The board on screen stays, whichever board the other version would show by default.
+						view.board = boardParam(choice, next !== null);
+						view.version = next;
 						// Measured items belong to the version they were picked on.
 						view.measure = [];
 					}}
@@ -452,7 +529,7 @@
 		</div>
 		<div class="actions">
 			<div class="pop">
-				<button class="pill" onclick={() => ((shareOpen = !shareOpen), (sectionOpen = false), (fallback = null))} aria-expanded={shareOpen}>
+				<button class="pill" onclick={() => ((shareOpen = !shareOpen), (sectionOpen = stepOpen = false), (fallback = null))} aria-expanded={shareOpen}>
 					<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1M11.5 8.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1" /></svg>
 					<span class="label">Share</span>
 				</button>
@@ -461,9 +538,9 @@
 					<div class="menu" role="menu">
 						<p>The link keeps parts, cuts, explode, camera and measurements.</p>
 						{#if current && view.measure.length}
-							<label class="pin"><input type="checkbox" checked disabled /> Pin to v{current.version} <small>measurements belong to this version</small></label>
+							<label class="pin"><input type="checkbox" checked disabled /> Pin to v{current.version}{pinnedBoard} <small>measurements belong to this version</small></label>
 						{:else if current}
-							<label class="pin"><input type="checkbox" bind:checked={pin} /> Pin to v{current.version} <small>otherwise always the latest</small></label>
+							<label class="pin"><input type="checkbox" bind:checked={pin} /> Pin to v{current.version}{pinnedBoard} <small>otherwise always the latest</small></label>
 						{/if}
 						{#each links as link (link.id)}
 							<button role="menuitem" onclick={() => share(link)}>{copied === link.id ? 'Copied' : link.label} <small>{link.hint}</small></button>
@@ -477,7 +554,27 @@
 					</div>
 				{/if}
 			</div>
-			{#if current}
+			{#if current && choice.kind === 'upstream'}
+				<!-- Two files: the model as exported, and the board on screen, the very file to import into CAD. -->
+				<div class="pop">
+					<button class="pill" onclick={() => ((stepOpen = !stepOpen), (shareOpen = sectionOpen = false))} aria-expanded={stepOpen} title="STEP files">
+						<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12" /></svg>
+						<span class="label">STEP</span>
+					</button>
+					{#if stepOpen}
+						<div class="menu" role="menu">
+							{#each [{ label: `${entry?.title} v${current.version}`, hint: 'as exported from CAD', file: current.step }, { label: `Board ${choice.revision.commit}`, hint: `${choice.track.source.repo}, KiCad export`, file: choice.revision.step }] as item (item.label)}
+								{@const step = host.step(item.file)}
+								{#if step.download}
+									<a role="menuitem" href={step.url} download>{item.label} <small>{item.hint} · {mb(item.file.bytes)} zipped</small></a>
+								{:else}
+									<button role="menuitem" onclick={() => openStep(step)}>{item.label} <small>{item.hint} · {mb(item.file.bytes)} zipped</small></button>
+								{/if}
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{:else if current}
 				{@const step = host.step(current.step)}
 				{#if step.download}
 					<a class="pill" href={step.url} download title="STEP, {mb(current.step.bytes)} zipped">
@@ -505,11 +602,48 @@
 					<button class="link" onclick={() => (panelOpen = false)}>Close</button>
 				{/if}
 			</div>
+			{#if entry?.board?.failed && !(choice.kind === 'upstream' || choice.possible)}
+				<div class="board-pick"><small class="warn">Upstream board: {entry.board.failed.commit} could not be built: {entry.board.failed.reason}</small></div>
+			{/if}
+			{#if entry?.board && (choice.kind === 'upstream' || choice.possible)}
+				{@const track = entry.board}
+				<div class="board-pick">
+					<label>
+						<span>Board</span>
+						<select value={choice.kind === 'upstream' ? choice.revision.id : 'cad'} onchange={(e) => pickBoard(e.currentTarget.value)}>
+							{#each track.revisions as revision (revision.id)}
+								<option value={revision.id}>{revisionLabel(revision)}{revision.id === track.latest ? ' · latest' : ''}</option>
+							{/each}
+							<option value="cad">As in CAD</option>
+						</select>
+					</label>
+					<small>
+						{#if choice.kind === 'upstream'}
+							{track.source.repo} · {track.source.ref}{choice.revision.subject ? ` · ${choice.revision.subject}` : ''}
+						{:else}
+							the board exported with v{current?.version}
+						{/if}
+					</small>
+					{#if track.failed}
+						<small class="warn">{track.failed.commit} could not be built: {track.failed.reason}</small>
+					{/if}
+				</div>
+			{/if}
 			{#if selectedPart}
 				<div class="selection">
 					<div class="sel-name">{selectedPart.name}</div>
 					{#if selectedPart.component && selectedPart.component !== selectedPart.name}
 						<div class="sel-meta">{selectedPart.component}</div>
+					{/if}
+					{#if choice.kind === 'upstream' && selectedPart.id === choice.slot.id}
+						{@const r = choice.revision}
+						<div class="sel-meta">{r.subject || 'Upstream board'} · {r.date.slice(0, 16).replace('T', ' ')} UTC</div>
+						{#each r.fixups as note (note)}
+							<div class="sel-meta">Export: {note}</div>
+						{/each}
+						{#if r.missing.length}
+							<div class="sel-meta">No 3D model: {r.missing.join(', ')}</div>
+						{/if}
 					{/if}
 					<div class="sel-actions">
 						<button onclick={() => isolate(selectedPart!)}>{view.isolated.includes(selectedPart.id) ? 'Show everything' : 'Show only'}</button>
@@ -572,7 +706,7 @@
 			<button class="tool small" class:on={view.ortho} onclick={() => (view.ortho = !view.ortho)} aria-pressed={view.ortho} title="Orthographic">Ortho</button>
 			<button class="tool small" class:on={view.edges} onclick={() => (view.edges = !view.edges)} aria-pressed={view.edges} title="Edge lines">Edges</button>
 			<span class="sep"></span>
-			<button class="tool" class:on={sectionOpen || view.cuts.length > 0} onclick={() => ((sectionOpen = !sectionOpen), (shareOpen = false))} aria-expanded={sectionOpen} title="Section">
+			<button class="tool" class:on={sectionOpen || view.cuts.length > 0} onclick={() => ((sectionOpen = !sectionOpen), (shareOpen = stepOpen = false))} aria-expanded={sectionOpen} title="Section">
 				<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5Z" /><path d="M3 10h14" stroke-dasharray="2 2" /></svg>
 				<span>Section{view.cuts.length ? ` ${view.cuts.length}` : ''}</span>
 			</button>
@@ -590,7 +724,7 @@
 	{#if progress !== null && !error}
 		<div class="loading" role="status">
 			<div class="bar"><div style:width="{Math.round((progress ?? 0) * 100)}%"></div></div>
-			<span>Loading {entry?.title ?? ''}{current ? ` v${current.version} · ${mb(current.glb.bytes)}` : ''}</span>
+			<span>Loading {entry?.title ?? ''}{current && files ? ` v${current.version}${files.board ? ` + board ${files.board.commit}` : ''} · ${mb(files.glb.bytes + (files.board?.glb.bytes ?? 0))}` : ''}</span>
 		</div>
 	{/if}
 	{#if error}
@@ -750,7 +884,8 @@
 		color: var(--muted);
 		font-size: 12px;
 	}
-	.menu button {
+	.menu button,
+	.menu a {
 		text-align: left;
 		border: 0;
 		background: none;
@@ -758,8 +893,11 @@
 		padding: 8px;
 		cursor: pointer;
 		font-weight: 500;
+		color: var(--text);
+		text-decoration: none;
 	}
-	.menu button:hover {
+	.menu button:hover,
+	.menu a:hover {
 		background: var(--hover);
 	}
 	.menu small {
@@ -831,6 +969,36 @@
 		cursor: pointer;
 		padding: 2px 4px;
 		font-size: 13px;
+	}
+	.board-pick {
+		margin: 0 12px 10px;
+		display: grid;
+		gap: 2px;
+	}
+	.board-pick label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-weight: 500;
+	}
+	.board-pick select {
+		flex: 1;
+		min-width: 0;
+		font: inherit;
+		font-variant-numeric: tabular-nums;
+		color: var(--text);
+		background: var(--field);
+		border: 1px solid var(--line-strong);
+		border-radius: 8px;
+		padding: 4px 6px;
+	}
+	.board-pick small {
+		color: var(--muted);
+		font-size: 12px;
+		overflow-wrap: anywhere;
+	}
+	.board-pick .warn {
+		color: var(--accent-text);
 	}
 	.selection {
 		margin: 0 12px 10px;

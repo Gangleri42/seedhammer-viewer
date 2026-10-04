@@ -9,9 +9,19 @@ describe('hash', () => {
 		'#/seed?iso=c7&cut=y:0&cam=120,80,90;0,0,20&sel=c7&edges=0',
 		'#/hammer?cam=100,-200,150.5;0,0,80;2.5&ortho=1',
 		'#/hammer@50?m=k3x9a1.f12.q7,0f2kq7.c40',
-		'#/seed@15?cut=y:0&cam=120,80,90;0,0,20&sel=c7&m=a1.e3,a1.v0.x2&edges=0'
+		'#/seed@15?cut=y:0&cam=120,80,90;0,0,20&sel=c7&m=a1.e3,a1.v0.x2&edges=0',
+		'#/seed@26?b=7ac023b&hide=a3',
+		'#/hammer?b=cad'
 	])('round-trips %s', (hash) => {
 		expect(encode(decode(hash))).toBe(hash);
+	});
+
+	it('reads the board as an upstream revision or cad, and drops anything else', () => {
+		expect(decode('#/seed?b=7ac023b').board).toBe('7ac023b');
+		expect(decode('#/seed@22?b=cad').board).toBe('cad');
+		expect(decode('#/seed?b=latest').board).toBeNull();
+		expect(decode('#/seed?b=7AC023B').board).toBeNull();
+		expect(decode('#/seed').board).toBeNull();
 	});
 
 	it('falls back to the default model on garbage', () => {

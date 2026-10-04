@@ -49,7 +49,7 @@ export class MeasureTool implements CanvasTool {
 	active = false;
 	#viewer: Viewer;
 	#on: { change(refs: MeasureRef[]): void; outcome(outcome: Outcome): void };
-	#data: MeasureFile | null = null;
+	#data: MeasureFile[] | null = null;
 	#topology: Topology | null = null;
 	#refs: MeasureRef[] = [];
 	#picker: Picker;
@@ -97,11 +97,11 @@ export class MeasureTool implements CanvasTool {
 		this.#viewer.requestRender();
 	}
 
-	/** The loaded model's measurement file, or null while it loads or when there is none. */
-	setModel(data: MeasureFile | null) {
-		if (data === this.#data) return;
-		this.#data = data;
-		this.#topology = data && this.#viewer.parts ? new Topology(data, this.#viewer.parts) : null;
+	/** The loaded model's measurement files (the model's, then its board's), or null while they load or when there are none. */
+	setModel(files: MeasureFile[] | null) {
+		if (files === this.#data) return;
+		this.#data = files;
+		this.#topology = files && this.#viewer.parts ? new Topology(files, this.#viewer.parts) : null;
 		this.#measurer.clear();
 		this.#picker.sticky = [];
 		this.#resolve();

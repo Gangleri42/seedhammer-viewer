@@ -55,10 +55,12 @@ export function indexParts(root: THREE.Object3D): PartIndex {
 	}
 	for (const child of root.children) visit(child, null);
 
-	// A body that is the only child of its occurrence adds nothing to the tree: show the occurrence only.
+	// A body that is the only child of its occurrence adds nothing to the tree: show the occurrence only. A body drawn
+	// by one primitive is itself the mesh, and a pick on it must still find the body (Measure reads its solid): the
+	// tree finds the occurrence through shownPart.
 	for (const part of byId.values()) {
 		if (part.children.length === 1 && part.children[0].body && part.children[0].children.length === 0) {
-			byObject.set(part.children[0].object, part);
+			if (!(part.children[0].object as THREE.Mesh).isMesh) byObject.set(part.children[0].object, part);
 			part.children = [];
 		}
 	}

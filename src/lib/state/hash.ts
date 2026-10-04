@@ -1,6 +1,7 @@
 // The whole view lives in the URL hash so a link reproduces it:
-//   #/hammer@41?hide=a3,b0&iso=c7&cut=x:12.5!,z:-3&ex=0.6&cam=12.1,-300,250;0,0,80&sel=a3&m=k3x9a1.f12.q7&edges=0&ortho=1
-// No version means "latest". Unknown keys are ignored, so old links survive new features.
+//   #/hammer@41?b=7ac023b&hide=a3,b0&iso=c7&cut=x:12.5!,z:-3&ex=0.6&cam=12.1,-300,250;0,0,80&sel=a3&m=k3x9a1.f12.q7&edges=0&ortho=1
+// No version means "latest". Unknown keys are ignored, so old links survive new features. b names the board: an
+// upstream revision or "cad" for the one exported with the model (see src/lib/models/boards.ts for the defaults).
 
 export type Axis = 'x' | 'y' | 'z';
 export type Cut = { axis: Axis; offset: number; flip: boolean };
@@ -17,6 +18,8 @@ export type MeasureRef = { part: string; kind: MeasureKind; index: number; check
 export type ViewState = {
 	model: string;
 	version: number | null;
+	/** An upstream board revision, "cad", or null for the default: the latest board, or "cad" on a pinned version. */
+	board: string | null;
 	hidden: string[];
 	isolated: string[];
 	cuts: Cut[];
@@ -35,6 +38,7 @@ export function defaultState(model = DEFAULT_MODEL): ViewState {
 	return {
 		model,
 		version: null,
+		board: null,
 		hidden: [],
 		isolated: [],
 		cuts: [],
@@ -63,9 +67,11 @@ export const sameRef = (a: MeasureRef, b: MeasureRef) => a.part === b.part && a.
 const round = (v: number, step: number) => Math.round(v / step) * step;
 const num = (v: number, step = 0.1) => String(Number(round(v, step).toFixed(3)));
 const ID_LIST = /^[0-9a-z]+(,[0-9a-z]+)*$/;
+const BOARD = /^(cad|[0-9a-f]{7})$/;
 
 export function encode(state: ViewState): string {
 	const params: string[] = [];
+	if (state.board) params.push(`b=${state.board}`);
 	if (state.hidden.length) params.push(`hide=${state.hidden.join(',')}`);
 	if (state.isolated.length) params.push(`iso=${state.isolated.join(',')}`);
 	if (state.cuts.length) {
@@ -104,6 +110,8 @@ export function decode(hash: string): ViewState {
 	const state = defaultState(match[1].toLowerCase());
 	state.version = match[2] ? Number(match[2]) : null;
 	const params = new URLSearchParams(match[3] ?? '');
+	const board = params.get('b');
+	if (board && BOARD.test(board)) state.board = board;
 
 	const ids = (key: string) => {
 		const value = params.get(key);
