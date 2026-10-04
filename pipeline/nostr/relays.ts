@@ -2,7 +2,7 @@
 // from every relay separately so a stale copy somewhere shows up.
 import './ws.ts';
 import type { Event } from 'nostr-tools/core';
-import type { Filter } from 'nostr-tools/filter';
+import { matchFilter, type Filter } from 'nostr-tools/filter';
 import { SimplePool } from 'nostr-tools/pool';
 import { verifyEvent } from 'nostr-tools/pure';
 
@@ -40,7 +40,8 @@ export class Relays {
 			relays.map(async (relay) => {
 				try {
 					const events = await withTimeout(this.#pool.querySync([relay], { ...filter, limit: filter.limit ?? 5 }, { maxWait: timeoutMs }), timeoutMs + 2000, `query ${relay}`);
-					const valid = events.filter((e) => verifyEvent(e)).sort((a, b) => b.created_at - a.created_at);
+					// A relay can answer with anything signed, so the filter is checked again: another key's manifest is not ours.
+					const valid = events.filter((e) => verifyEvent(e) && matchFilter(filter, e)).sort((a, b) => b.created_at - a.created_at);
 					seen[relay] = valid[0]?.id ?? null;
 					if (valid[0] && (!newest || valid[0].created_at > newest.created_at)) newest = valid[0];
 				} catch {

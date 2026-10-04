@@ -1,7 +1,7 @@
 // Publishes the viewer to Nostr, signed end to end:
 //   1. builds the site (build/) and the napplet (dist-napplet/index.html)
 //   2. checks which Blossom servers take every file type, then uploads to our server and mirrors to the others
-//   3. verifies every file on every server by downloading it and hashing it
+//   3. downloads and hashes each file on each server where no earlier publish verified it
 //   4. merges and publishes the relay list (10002) and server list (10063)
 //   5. publishes the site manifest (35128) with a snapshot (5128), then the napplet manifest (35129) with its snapshot (5129)
 //   6. fetches everything back from the relays and checks signatures and aggregates
@@ -22,7 +22,7 @@ import { blobUrl, download, extOf, head, mirror, preflight, upload, verify } fro
 import { chunksNeeded } from './nostr/carry.ts';
 import { KIND, LOOKUP_RELAYS, mimeOf, readConfig } from './nostr/config.ts';
 import { mergeRelayList, mergeServerList } from './nostr/lists.ts';
-import { aggregate, collectFiles, nappletTemplate, siteTemplate, snapshotTemplate, tagValue, validate, type FileEntry } from './nostr/manifest.ts';
+import { aggregate, collectFiles, nappletTemplate, siteTemplate, snapshotTemplate, tagValue, validate, verifiedPairs, type FileEntry } from './nostr/manifest.ts';
 import { siteOrigin, snapshotOrigin } from './nostr/nsite.ts';
 import { Relays } from './nostr/relays.ts';
 import { openSigner, type Signer } from './nostr/signer.ts';
@@ -284,17 +284,22 @@ for (const entry of everything) {
 const carried = previous.filter((p) => !lostPrevious.has(p.path));
 if (lostPrevious.size) log(`  ${lostPrevious.size} previous chunk paths are no longer on ${ownServer} and are dropped`);
 
-log('\nverifying every file on every server (download and hash)');
+log('\nverifying: downloading and hashing each file on each server where no earlier publish did');
 // Everything that must be served (verified below), and the site's own file set (the napplet is its own manifest).
 const finalEntries: FileEntry[] = [...uploads, ...carried];
 const siteEntries: FileEntry[] = [...site, ...carried];
+// What the manifests on the relays list was verified on their servers before they went out; finding those files
+// there again while placing is enough.
+const verifiedBefore = verifiedPairs([current.site, current.napplet]);
 for (const server of [...surviving]) {
 	const bad: string[] = [];
-	for (const entry of finalEntries) {
+	const unverified = finalEntries.filter((entry) => !verifiedBefore.has(`${server} ${entry.sha256}`));
+	for (const entry of unverified) {
 		const r = await verify(server, entry);
 		if (!r.ok) bad.push(`${entry.path}: ${r.status} ${r.reason}`);
 	}
-	log(`  ${bad.length ? 'FAIL' : 'ok  '} ${server}${bad.length ? `: ${bad.slice(0, 3).join('; ')}` : ''}`);
+	const counts = `${unverified.length} downloaded, ${finalEntries.length - unverified.length} verified before`;
+	log(`  ${bad.length ? 'FAIL' : 'ok  '} ${server}: ${counts}${bad.length ? `; ${bad.slice(0, 3).join('; ')}` : ''}`);
 	if (bad.length) surviving.delete(server);
 }
 if (!surviving.has(ownServer)) {

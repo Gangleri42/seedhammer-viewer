@@ -132,3 +132,17 @@ export function validate(event: EventTemplate | Event, options: { snapshot?: boo
 
 export const tagValue = (event: { tags: string[][] }, name: string) => event.tags.find((t) => t[0] === name)?.[1];
 export const tagValues = (event: { tags: string[][] }, name: string) => event.tags.filter((t) => t[0] === name).map((t) => t[1]);
+
+/**
+ * "<server> <sha256>" for each file a published manifest lists, on each server it names. A manifest goes out only
+ * after its files were downloaded and hashed on those servers, so a publish need not download these again.
+ */
+export function verifiedPairs(manifests: ({ tags: string[][] } | null)[]) {
+	const pairs = new Set<string>();
+	for (const manifest of manifests) {
+		if (!manifest) continue;
+		const servers = tagValues(manifest, 'server');
+		for (const [, , sha256] of manifest.tags.filter((t) => t[0] === 'path')) for (const server of servers) pairs.add(`${server} ${sha256}`);
+	}
+	return pairs;
+}
