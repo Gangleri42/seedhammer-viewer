@@ -5,6 +5,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ModelIndex } from '../src/lib/models/types.ts';
 import { ARCHETYPE, CONVENTION } from '../src/lib/state/archetype.ts';
+import { openingFiles } from '../src/lib/models/boards.ts';
 
 const dir = 'dist-napplet';
 const built = existsSync(`${dir}/index.html`);
@@ -22,15 +23,16 @@ describe.skipIf(!built)('napplet artefact', () => {
 		expect(html.byteLength).toBeLessThan(12_000_000);
 	});
 
-	it('carries the latest model of each kind and its measurement file, except models kept out of the napplet', () => {
+	it('carries what each model opens with and its measurement files, except models kept out of the napplet', () => {
 		const index: ModelIndex = JSON.parse(readFileSync('static/models/index.json', 'utf8'));
 		const configs: Record<string, { napplet?: boolean }> = JSON.parse(readFileSync('pipeline/models.json', 'utf8'));
 		for (const [key, entry] of Object.entries(index.models)) {
-			const latest = entry.versions.find((v) => v.version === entry.latest)!;
-			for (const file of [latest.glb, latest.measure]) {
-				if (!file) continue;
-				if (configs[key]?.napplet === false) expect(text).not.toContain(file.sha256);
-				else expect(text).toContain(file.sha256);
+			for (const file of openingFiles(entry)) {
+				// The bytes themselves: the embedded index names every file by hash, inlined or not.
+				const bytes = readFileSync(`static/models/${file.path}`).toString('base64');
+				const sample = bytes.slice(Math.floor(bytes.length / 2), Math.floor(bytes.length / 2) + 120);
+				if (configs[key]?.napplet === false) expect(text).not.toContain(sample);
+				else expect(text).toContain(sample);
 			}
 		}
 	});

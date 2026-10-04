@@ -127,6 +127,49 @@ function reflectiveGlass(material: THREE.MeshStandardMaterial) {
 	material.needsUpdate = true;
 }
 
+/** A failure that is the board's, not the model's: the app then shows the model with its CAD board instead. */
+export function boardError(err: unknown) {
+	return Object.assign(err instanceof Error ? err : new Error(String(err)), { name: 'BoardError' });
+}
+
+/** An upstream board for the model's board slot (src/lib/models/boards.ts). */
+export type BoardAttachment = {
+	buffer: ArrayBuffer;
+	/** The part id of the slot: the CAD board's sub-assembly. */
+	slot: string;
+	/** A shift for a model whose CAD board sits off KiCad's frame inside its link, mm. */
+	fix?: [number, number, number];
+	/** How the slot shows in the part tree while it holds this board. */
+	name: string;
+	component: string;
+};
+
+/**
+ * Swaps the CAD board's parts in the slot for the board's. The board GLB's nodes are in KiCad's page frame, as the
+ * slot is, so they go in with their own matrices (add, not attach: the board root's scale and rotation stay out).
+ * Neither model has been drawn yet, so the parts that leave hold nothing on the GPU.
+ */
+function attachBoard(root: THREE.Object3D, board: THREE.Object3D, attachment: BoardAttachment) {
+	let slot: THREE.Object3D | undefined;
+	root.traverse((object) => {
+		if (!slot && object.userData.id === attachment.slot) slot = object;
+	});
+	if (!slot) throw new Error('the model has no board slot');
+	for (const child of [...slot.children]) slot.remove(child);
+	let holder = slot;
+	if (attachment.fix) {
+		holder = new THREE.Group();
+		holder.position.fromArray(attachment.fix);
+		slot.add(holder);
+	}
+	for (const child of [...board.children[0].children]) {
+		// Measure finds a board body's solid in the board's own file.
+		child.traverse((object) => (object.userData.source = 1));
+		holder.add(child);
+	}
+	Object.assign(slot.userData, { name: attachment.name, component: attachment.component });
+}
+
 export class Viewer {
 	readonly renderer: THREE.WebGLRenderer;
 	readonly scene = new THREE.Scene();
@@ -306,27 +349,43 @@ export class Viewer {
 	}
 
 	/**
-	 * Replaces the model with a GLB's bytes and returns its part index. When `wanted` turns false while the bytes are
-	 * parsed (a newer request came in), the parsed model is thrown away, the scene is left alone and null comes back.
+	 * Replaces the model with a GLB's bytes and returns its part index; with `board`, that GLB's parts go into the
+	 * model's board slot first. When `wanted` turns false while the bytes are parsed (a newer request came in), the
+	 * parsed model is thrown away, the scene is left alone and null comes back. Nothing on screen changes before the new
+	 * model is complete, so a failed load leaves the old one in place.
 	 */
-	async loadBuffer(buffer: ArrayBuffer, wanted: () => boolean = () => true) {
-		const gltf = await this.#loader.parseAsync(buffer, '');
-		if (!wanted()) {
-			this.#release(gltf.scene);
+	async loadBuffer(buffer: ArrayBuffer, wanted: () => boolean = () => true, board: BoardAttachment | null = null) {
+		const parsed = await Promise.allSettled([this.#loader.parseAsync(buffer, ''), board ? this.#loader.parseAsync(board.buffer, '') : null]);
+		const scenes = parsed.flatMap((p) => (p.status === 'fulfilled' && p.value ? [p.value.scene] : []));
+		const failed = parsed.find((p) => p.status === 'rejected');
+		if (failed || !wanted()) {
+			for (const scene of scenes) this.#release(scene);
+			if (parsed[0].status === 'rejected') throw parsed[0].reason;
+			if (failed) throw boardError(failed.reason);
 			return null;
 		}
+		const [model, boardScene] = scenes;
+		// The GLB root carries glTF's metres and Y-up; drop it so node coordinates are Fusion's again.
+		const root = model.children[0];
+		root.position.set(0, 0, 0);
+		root.quaternion.identity();
+		root.scale.set(1, 1, 1);
+		if (board) {
+			try {
+				attachBoard(root, boardScene, board);
+			} catch (err) {
+				for (const scene of scenes) this.#release(scene);
+				throw boardError(err);
+			}
+		}
+
 		if (this.model) {
 			this.#tool?.detach();
 			this.scene.remove(this.model);
 			this.#release(this.model, this.#highlight.values());
 		}
 		this.#targets = null;
-		// The GLB root carries glTF's metres and Y-up; drop it so node coordinates are Fusion's again.
-		const root = gltf.scene.children[0];
-		root.position.set(0, 0, 0);
-		root.quaternion.identity();
-		root.scale.set(1, 1, 1);
-		this.model = gltf.scene;
+		this.model = model;
 
 		this.#edges = [];
 		this.#highlight.clear();

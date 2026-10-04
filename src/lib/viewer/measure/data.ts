@@ -35,8 +35,9 @@ export class Topology {
 	#frames = new Map<Part, Frame>();
 	#polylines = new Map<string, THREE.Vector3[]>();
 
+	/** One measurement file per GLB in the scene: the model's first, then the board's (a body's userData.source). */
 	constructor(
-		readonly data: MeasureFile,
+		readonly files: MeasureFile[],
 		readonly parts: PartIndex
 	) {}
 
@@ -52,8 +53,8 @@ export class Topology {
 	}
 
 	solid(body: Part): SolidRecord | null {
-		const index = (body.object.userData as { solid?: number }).solid;
-		return index === undefined ? null : (this.data.solids[index] ?? null);
+		const { solid, source } = body.object.userData as { solid?: number; source?: number };
+		return solid === undefined ? null : (this.files[source ?? 0]?.solids[solid] ?? null);
 	}
 
 	frame(body: Part): Frame {
