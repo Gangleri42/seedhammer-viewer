@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools/core';
-import { aggregate, nappletTemplate, siteTemplate, snapshotTemplate, validate, type FileEntry } from './manifest.ts';
+import { aggregate, nappletTemplate, siteTemplate, snapshotTemplate, validate, verifiedPairs, type FileEntry } from './manifest.ts';
 
 const A = 'a'.repeat(64), B = 'b'.repeat(64);
 const entries: FileEntry[] = [
@@ -48,5 +48,21 @@ describe('nsite manifest', () => {
 		expect(snapshot.tags.filter((t) => t[0] === 'path')).toHaveLength(2);
 		expect(validate(snapshot, { snapshot: true })).toBe(true);
 		expect(() => validate(snapshot)).toThrow(/d tag/);
+	});
+
+	it('pairs every listed file with every server of its manifest as verified', () => {
+		const C = 'c'.repeat(64);
+		const site = siteTemplate({ ...base, servers: ['https://one.example.com', 'https://two.example.com'] });
+		const napplet = nappletTemplate({ ...base, entries: [{ path: '/index.html', sha256: C, bytes: 9, type: 'text/html' }], servers: ['https://one.example.com'], requires: [], archetypes: [] });
+		expect([...verifiedPairs([site, napplet, null])].sort()).toEqual([
+			`https://one.example.com ${A}`,
+			`https://one.example.com ${B}`,
+			`https://one.example.com ${C}`,
+			`https://two.example.com ${A}`,
+			`https://two.example.com ${B}`
+		]);
+		// A server a manifest does not name has verified nothing of it, and without manifests nothing was verified.
+		expect(verifiedPairs([napplet]).has(`https://two.example.com ${C}`)).toBe(false);
+		expect(verifiedPairs([null, null]).size).toBe(0);
 	});
 });
