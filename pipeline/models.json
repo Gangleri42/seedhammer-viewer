@@ -50,7 +50,27 @@
 				"parts": [
 					"Skeleton"
 				],
-				"from": 22
+				"from": 22,
+				"until": 24
+			},
+			{
+				"appearance": "Aluminium - satiniert",
+				"kind": "metal",
+				"roughness": 0.26,
+				"parts": [
+					"Skeleton (1)"
+				],
+				"from": 25
+			},
+			{
+				"appearance": "Polykarbonat (klar)",
+				"kind": "glass",
+				"roughness": 0.0,
+				"opacity": 0.4,
+				"parts": [
+					"Skeleton (2)"
+				],
+				"from": 25
 			},
 			{
 				"appearance": "Glas (klar)",
