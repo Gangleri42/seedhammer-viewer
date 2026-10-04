@@ -2,7 +2,8 @@
 //   1. builds the site (build/) and the napplet (dist-napplet/index.html)
 //   2. checks which Blossom servers take every file type, then uploads to our server and mirrors to the others,
 //      file by file, the others at once
-//   3. downloads and hashes each file on each server where no earlier publish verified it
+//   3. downloads and hashes each file on each server where no earlier publish verified it, where it had to be placed
+//      again, or where the server reports another size
 //   4. merges and publishes the relay list (10002) and server list (10063)
 //   5. publishes the site manifest (35128) with a snapshot (5128), then the napplet manifest (35129) with its snapshot (5129)
 //   6. fetches everything back from the relays and checks signatures and aggregates
@@ -257,8 +258,16 @@ log('\nplacing files');
 // from our own server.
 const bytesOf = async (entry: FileEntry): Promise<Uint8Array | null> =>
 	entry.file ? readFileSync(entry.file) : fromOwnServer(entry.sha256, entry.path);
+// "<server> <sha256>" to download below even when an earlier publish verified it: a copy placed in this run is new on
+// that server, and a server that answers for a file with another size (a parked domain, an error page) is suspect.
+const recheck = new Set<string>();
 const place = async (server: string, entry: FileEntry) => {
-	if ((await head(server, entry.sha256)).status === 200) return { ok: true, status: 200, reason: 'present' };
+	const found = await head(server, entry.sha256);
+	if (found.status === 200) {
+		if (entry.bytes && found.size !== null && found.size !== entry.bytes) recheck.add(`${server} ${entry.sha256}`);
+		return { ok: true, status: 200, reason: 'present' };
+	}
+	recheck.add(`${server} ${entry.sha256}`);
 	if (server !== ownServer) {
 		const mirrored = await mirror(server, blobUrl(ownServer, entry.sha256, extOf(entry.path)), await authFor(entry));
 		if (mirrored.ok) return mirrored;
@@ -297,12 +306,12 @@ log('\nverifying: downloading and hashing each file on each server where no earl
 const finalEntries: FileEntry[] = [...uploads, ...carried];
 const siteEntries: FileEntry[] = [...site, ...carried];
 // What the manifests on the relays list was verified on their servers before they went out; finding those files
-// there again while placing is enough.
+// there again while placing, at their size, is enough.
 const verifiedBefore = verifiedPairs([current.site, current.napplet]);
 const downloaded = new Set<string>();
 for (const server of [...surviving]) {
 	const bad: string[] = [];
-	const unverified = finalEntries.filter((entry) => !verifiedBefore.has(`${server} ${entry.sha256}`));
+	const unverified = finalEntries.filter((entry) => !verifiedBefore.has(`${server} ${entry.sha256}`) || recheck.has(`${server} ${entry.sha256}`));
 	for (const entry of unverified) {
 		downloaded.add(entry.sha256);
 		const r = await verify(server, entry);
