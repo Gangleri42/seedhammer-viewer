@@ -4,13 +4,21 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { EDGE, FACE, readMeasure } from '$lib/measure/format';
-import type { ModelFile, ModelIndex, ModelVersion } from './types';
+import type { ModelFile, ModelIndex } from './types';
 
 const INDEX = 'static/models/index.json';
 const built = existsSync(INDEX);
-const index: ModelIndex = built ? JSON.parse(readFileSync(INDEX, 'utf8')) : { version: 2, models: {} };
-const files = Object.values(index.models).flatMap((m) => m.versions.flatMap((v) => [v.glb, v.step, ...(v.measure ? [v.measure] : []), ...(v.plain ? [v.plain] : [])]));
-const measured = Object.entries(index.models).flatMap(([key, m]) => m.versions.filter((v) => v.measure).map((v): [string, ModelVersion] => [`${key} v${v.version}`, v]));
+const index: ModelIndex = built ? JSON.parse(readFileSync(INDEX, 'utf8')) : { version: 3, models: {} };
+const files = Object.values(index.models).flatMap((m) => [
+	...m.versions.flatMap((v) => [v.glb, v.step, v.measure, v.plain, v.bare?.glb, v.bare?.measure]),
+	...(m.board?.revisions ?? []).flatMap((r) => [r.glb, r.measure, r.step])
+]).filter((f): f is ModelFile => !!f);
+/** Every GLB with its measurement file: each version as exported, the latest without its board, every board. */
+const measured = Object.entries(index.models).flatMap(([key, m]): [string, { glb: ModelFile; measure: ModelFile }][] => [
+	...m.versions.filter((v) => v.measure).map((v): [string, { glb: ModelFile; measure: ModelFile }] => [`${key} v${v.version}`, { glb: v.glb, measure: v.measure! }]),
+	...m.versions.filter((v) => v.bare?.measure).map((v): [string, { glb: ModelFile; measure: ModelFile }] => [`${key} v${v.version} bare`, { glb: v.bare!.glb, measure: v.bare!.measure! }]),
+	...(m.board?.revisions ?? []).map((r): [string, { glb: ModelFile; measure: ModelFile }] => [`${key} board ${r.id}`, r])
+]);
 
 /** The JSON chunk of a GLB. */
 function glbJson(path: string) {
@@ -20,13 +28,28 @@ function glbJson(path: string) {
 const unit = (v: number[]) => Math.abs(Math.hypot(...v) - 1) < 1e-5;
 
 describe.skipIf(!built)('static/models/index.json', () => {
-	it('is schema v2 with every model sorted newest first', () => {
-		expect(index.version).toBe(2);
+	it('is schema v3 with every model sorted newest first', () => {
+		expect(index.version).toBe(3);
 		expect(Object.keys(index.models).length).toBeGreaterThan(0);
 		for (const entry of Object.values(index.models)) {
 			expect(entry.versions.length).toBeGreaterThan(0);
 			expect(entry.latest).toBe(entry.versions[0].version);
 			expect([...entry.versions].sort((a, b) => b.version - a.version)).toEqual(entry.versions);
+			if (entry.board) expect(entry.board.latest).toBe(entry.board.revisions[0]?.id ?? null);
+		}
+	});
+
+	// A board's parts go into its slot: their ids must never equal a part id of the model around them.
+	it.each(Object.entries(index.models).filter(([, m]) => m.board?.revisions.length && m.versions[0].bare))('%s keeps board and model ids apart', (_key, entry) => {
+		const ids = (file: ModelFile) => new Set<string>(glbJson(`static/models/${file.path}`).nodes.map((n: { extras?: { id?: string } }) => n.extras?.id).filter(Boolean));
+		const latest = entry.versions[0];
+		const model = ids(latest.bare!.glb);
+		expect(model.has(latest.slot!.id)).toBe(true);
+		expect(ids(latest.glb).has(latest.slot!.id)).toBe(true);
+		for (const revision of entry.board!.revisions) {
+			const board = ids(revision.glb);
+			expect([...board].filter((id) => model.has(id))).toEqual([]);
+			expect(revision.id).toMatch(/^[0-9a-f]{7}$/);
 		}
 	});
 
@@ -40,7 +63,7 @@ describe.skipIf(!built)('static/models/index.json', () => {
 
 describe.skipIf(!built || !measured.length)('measurement files', () => {
 	it.each(measured)('%s matches its GLB', async (_name, version) => {
-		const bytes = readFileSync(`static/models/${version.measure!.path}`);
+		const bytes = readFileSync(`static/models/${version.measure.path}`);
 		expect([...bytes.subarray(0, 2)]).toEqual([0x1f, 0x8b]);
 		const file = await readMeasure(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
 		expect(file.glb).toBe(version.glb.sha256);
