@@ -1,6 +1,7 @@
 // Publishes the viewer to Nostr, signed end to end:
 //   1. builds the site (build/) and the napplet (dist-napplet/index.html)
-//   2. checks which Blossom servers take every file type, then uploads to our server and mirrors to the others
+//   2. checks which Blossom servers take every file type, then uploads to our server and mirrors to the others,
+//      file by file, the others at once
 //   3. downloads and hashes each file on each server where no earlier publish verified it
 //   4. merges and publishes the relay list (10002) and server list (10063)
 //   5. publishes the site manifest (35128) with a snapshot (5128), then the napplet manifest (35129) with its snapshot (5129)
@@ -203,18 +204,20 @@ for (let i = 0; i < everything.length; i += 20) {
 	const batch = everything.slice(i, i + 20);
 	for (const entry of batch) batches.set(entry.sha256, batch);
 }
-const auths = new Map<FileEntry[], Event>();
-async function authFor(entry: { sha256: string }): Promise<Event> {
+// The servers of one file are served at once, so a batch keeps its pending signature and they all wait for that one.
+const auths = new Map<FileEntry[], { signed: number; auth: Promise<Event> }>();
+function authFor(entry: { sha256: string }): Promise<Event> {
 	const batch = batches.get(entry.sha256)!;
 	const cached = auths.get(batch);
-	if (cached && unixNow() - cached.created_at < 90) return cached;
-	const auth = await signer.signEvent({
+	if (cached && unixNow() - cached.signed < 90) return cached.auth;
+	const signed = unixNow();
+	const auth = signer.signEvent({
 		kind: KIND.blobAuth,
-		created_at: unixNow(),
+		created_at: signed,
 		content: 'Publish the SeedHammer viewer',
-		tags: [['t', 'upload'], ['expiration', String(unixNow() + 600)], ...batch.map((e) => ['x', e.sha256])]
+		tags: [['t', 'upload'], ['expiration', String(signed + 600)], ...batch.map((e) => ['x', e.sha256])]
 	});
-	auths.set(batch, auth);
+	auths.set(batch, { signed, auth });
 	return auth;
 }
 
@@ -272,13 +275,14 @@ for (const entry of everything) {
 		await shutdown();
 		fail(`${ownServer} did not take ${entry.path}: ${own.status} ${own.reason}`);
 	}
-	for (const server of servers.filter((s) => s !== ownServer && surviving.has(s))) {
-		const r = await place(server, entry);
-		if (!r.ok) {
-			log(`  ${server} did not take ${entry.path}: ${r.status} ${r.reason}; dropping the server for this deploy`);
-			surviving.delete(server);
-		}
-	}
+	// The others mirror from our server, so they come after it, all at once.
+	const others = servers.filter((s) => s !== ownServer && surviving.has(s));
+	const placed = await Promise.all(others.map((server) => place(server, entry)));
+	placed.forEach((r, i) => {
+		if (r.ok) return;
+		log(`  ${others[i]} did not take ${entry.path}: ${r.status} ${r.reason}; dropping the server for this deploy`);
+		surviving.delete(others[i]);
+	});
 	log(`  ${entry.path} (${(entry.bytes / 1e3).toFixed(0)} kB) on ${[...surviving].length} servers`);
 }
 const carried = previous.filter((p) => !lostPrevious.has(p.path));
