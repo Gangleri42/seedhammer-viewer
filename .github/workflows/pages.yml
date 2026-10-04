@@ -1,6 +1,8 @@
 name: Build and deploy
 
-# Rebuilds on changes here, when sh-hardware reports a new model (repository_dispatch), daily as a fallback, and by hand.
+# Rebuilds on changes here, when sh-hardware reports a new model (repository_dispatch), when the board repository
+# (seedhammer/hardware) moves past what the site was built from (checked every 10 minutes), daily as a fallback, and
+# by hand.
 on:
   push:
     branches: [main]
@@ -8,6 +10,7 @@ on:
     types: [hardware-updated]
   schedule:
     - cron: '17 4 * * *'
+    - cron: '4-59/10 * * * *'
   workflow_dispatch:
 
 # Read-only for every job; only the deploy job, which runs no project code or dependencies, may write to Pages.
@@ -19,9 +22,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The 10-minute schedule builds only when a tracked board changed since the live site was built. Every other
+  # trigger builds.
+  watch:
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.check.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            pipeline/boards.json
+            scripts/boards-changed.mjs
+            static/CNAME
+          sparse-checkout-cone-mode: false
+      - id: check
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$SCHEDULE" = '4-59/10 * * * *' ]; then node scripts/boards-changed.mjs >> "$GITHUB_OUTPUT"
+          else echo changed=true >> "$GITHUB_OUTPUT"; fi
+
   # Nothing is built or deployed from a tree or history that carries private data. The report names rules and
   # places, never the match; PRIVATE_TERMS is an optional secret with one private term per line.
   privacy:
+    needs: watch
+    if: needs.watch.outputs.build == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -45,6 +72,12 @@ jobs:
           repository: Gangleri42/sh-hardware
           path: sh-hardware
           fetch-depth: 0
+      - name: Check out the board repository with its full history and every branch
+        uses: actions/checkout@v7
+        with:
+          repository: seedhammer/hardware
+          path: seedhammer-hardware
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -53,19 +86,30 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install cadquery-ocp==8.0.1.0.0
-      - name: Restore converted models
+      # A pipeline change still restores the last cache: its board exports (.cache/boards) outlive the pipeline hash.
+      - name: Restore converted models and board exports
         uses: actions/cache@v6
         with:
-          path: .cache/models
-          key: models-${{ hashFiles('pipeline/**', 'export/step/**') }}-${{ github.run_id }}
-          restore-keys: models-${{ hashFiles('pipeline/**', 'export/step/**') }}-
+          path: |
+            .cache/models
+            .cache/boards
+          key: models-${{ hashFiles('pipeline/**', 'export/**') }}-${{ github.run_id }}
+          restore-keys: |
+            models-${{ hashFiles('pipeline/**', 'export/**') }}-
+            models-
       - run: npm ci
       - run: npm test
-      - name: Convert every model version
+      # kicad-cli runs from KiCad's image, pinned by digest in the script, and only for board revisions not cached.
+      - name: Convert every model version and board revision
         run: npm run models
         env:
           HARDWARE_DIR: sh-hardware
           CONVERT: python
+          UPSTREAM_DIR: seedhammer-hardware
+          BOARDS: required
+          KICAD_CLI: scripts/kicad-docker.sh
+          KICAD_VERSION: '10.0.6'
+          KICAD_3DMODELS: /usr/share/kicad/3dmodels
       - run: npm run build
       # The napplet is checked here but published only from a machine with the signer (npm run publish:nostr).
       - run: npm run build:napplet
