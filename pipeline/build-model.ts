@@ -13,12 +13,14 @@ import { sha256 } from './manifest.ts';
 import { buildMeasure, type MeasureStats, type RawMeasure, type SolidMesh } from './measure.ts';
 import { assertPublic } from './privacy.ts';
 
-type Manifest = {
+export type Occurrence = { path: string; parent: string | null; name: string; component: string; linked: boolean; matrix: number[] };
+export type Body = { occ: string | null; body: string; mesh: number; appearance: string | null };
+export type Manifest = {
 	doc: string;
 	version: number;
 	units?: 'mm' | 'cm';
-	occurrences: { path: string; parent: string | null; name: string; component: string; linked: boolean; matrix: number[] }[];
-	bodies: { occ: string | null; body: string; mesh: number; appearance: string | null }[];
+	occurrences: Occurrence[];
+	bodies: Body[];
 	/** groups: [appearance, triangle count] in file order; appearance null means the body instance's colour. */
 	meshes: { component: string; body: string; groups?: [string | null, number][] }[];
 	appearances: Record<string, [string, string, unknown][]>;
@@ -138,11 +140,27 @@ export function finishesFor(materials: ModelConfig['materials'], version: number
 	return finishes;
 }
 
+export type BuildOptions = {
+	/** Hashed in front of every path, so a board's part ids can never meet an enclosure's. */
+	idPrefix?: string;
+	/** false: no part counts as a fastener (KiCad names such as Screw_Terminal would). */
+	fasteners?: boolean;
+	/** An occurrence whose contents are left out; the occurrence itself stays, empty (the enclosure without its board). */
+	omit?: string;
+};
+
 /** Builds the GLB for the export in `src`. Throws if the result would carry private data. */
-export async function buildModel(src: string, config: ModelConfig): Promise<BuildResult> {
+export async function buildModel(src: string, config: Pick<ModelConfig, 'title' | 'simplifyError' | 'simplifyErrorByComponent' | 'materials'>, options: BuildOptions = {}): Promise<BuildResult> {
 	await MeshoptSimplifier.ready;
 	await MeshoptEncoder.ready;
 	const manifest: Manifest = JSON.parse(readFileSync(`${src}/manifest.json`, 'utf8'));
+	const id = (path: string) => partId((options.idPrefix ?? '') + path);
+	// Decided by parent links, not by path prefix: a name may contain the separator.
+	const omitted = new Set<string>();
+	for (const occ of manifest.occurrences) {
+		if (options.omit && occ.parent !== null && (occ.parent === options.omit || omitted.has(occ.parent))) omitted.add(occ.path);
+	}
+	const left = (occ: string | null) => occ !== null && (occ === options.omit || omitted.has(occ));
 	const scale = manifest.units === 'mm' ? 1 : 10;
 	const stats = { trianglesIn: 0, trianglesOut: 0, bodies: 0 };
 
@@ -281,23 +299,25 @@ export async function buildModel(src: string, config: ModelConfig): Promise<Buil
 	const world = new Map<string, Mat4>();
 	let mirrored = 0;
 	for (const occ of manifest.occurrences) {
+		if (omitted.has(occ.path)) continue;
 		const w = toColumnMajor(occ.matrix, scale);
 		if (handedness(w, occ.path) < 0) mirrored++;
 		world.set(occ.path, w);
 		const local = occ.parent ? multiply(invertRigid(world.get(occ.parent)!), w) : w;
-		const fastener = occ.path in manifest.fastener_partners || FASTENER.test(occ.component);
+		const fastener = options.fasteners !== false && (occ.path in manifest.fastener_partners || FASTENER.test(occ.component));
 		const node = doc.createNode(occ.name).setMatrix(local as never).setExtras({
-			id: partId(occ.path), name: occ.name, component: occ.component, linked: occ.linked, fastener
+			id: id(occ.path), name: occ.name, component: occ.component, linked: occ.linked, fastener
 		});
 		nodes.get(occ.parent)!.addChild(node);
 		nodes.set(occ.path, node);
 	}
 	for (const body of manifest.bodies) {
+		if (left(body.occ)) continue;
 		const mesh = meshFor(body.mesh, body.appearance);
 		if (!mesh) continue;
 		const path = `${body.occ ?? ''}/${body.body}`;
 		// `solid` names the body's entry in the measurement file.
-		const extras = { id: partId(path), name: body.body, body: true, solid: body.mesh };
+		const extras = { id: id(path), name: body.body, body: true, solid: body.mesh };
 		nodes.get(body.occ)!.addChild(doc.createNode(body.body).setMesh(mesh).setExtras(extras));
 		stats.bodies++;
 	}

@@ -1,0 +1,66 @@
+{
+	"seed": {
+		"repo": "seedhammer/hardware",
+		"ref": "muscle",
+		"file": "seed/pcb/seed.kicad_pcb",
+		"since": "2026-09-01",
+		"keep": 20,
+		"fixups": {
+			"scale": {
+				"L6": [1, 1, 0.64],
+				"L7": [1, 1, 0.64],
+				"L9": [1, 1, 0.64]
+			}
+		},
+		"materials": [
+			{
+				"appearance": "Stahl - satiniert",
+				"kind": "metal",
+				"roughness": 0.26,
+				"parts": ["BW0041CG-L2.5W1.0H1.8"]
+			}
+		]
+	},
+	"hammer": {
+		"repo": "seedhammer/hardware",
+		"ref": "muscle",
+		"file": "muscle/pcb/muscle.kicad_pcb",
+		"since": "2026-09-01",
+		"keep": 20,
+		"fixups": {
+			"nearest": {
+				"Package_DFN_QFN.3dshapes/VQFN-24-1EP_4x4mm_P0.5mm_EP2.45x2.45mm": "Package_DFN_QFN.3dshapes/Texas_RGE0024C_VQFN-24-1EP_4x4mm_P0.5mm_EP2.1x2.1mm",
+				"Package_DFN_QFN.3dshapes/VQFN-28-1EP_5x5mm_P0.5mm_EP3.7x3.7mm": "Package_DFN_QFN.3dshapes/QFN-28-1EP_5x5mm_P0.5mm_EP3.35x3.35mm",
+				"Package_DFN_QFN.3dshapes/Winsok_DFN-8-1EP_3x3mm_P0.65mm_EP1.25x2.45mm": "Package_DFN_QFN.3dshapes/DFN-8-1EP_3x3mm_P0.65mm_EP1.55x2.4mm",
+				"Package_SO.3dshapes/HTSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP3.4x6.5mm_Mask2.96x2.96mm": "Package_SO.3dshapes/HTSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP3.4x6.5mm",
+				"Package_SON.3dshapes/Texas_DSG0008A_WSON-8-1EP_2x2mm_P0.5mm_EP0.9x1.6mm": "Package_SON.3dshapes/WSON-8-1EP_2x2mm_P0.5mm_EP0.9x1.6mm",
+				"Package_SON.3dshapes/WSON-8-1EP_6x5mm_P1.27mm_EP3.4x4mm": "Package_SON.3dshapes/WSON-8-1EP_6x5mm_P1.27mm_EP3.4x4.3mm"
+			}
+		},
+		"materials": [
+			{
+				"appearance": "Stahl - satiniert",
+				"kind": "metal",
+				"roughness": 0.26,
+				"parts": ["CP_Radial_D130mm_P500mm"]
+			}
+		]
+	},
+	"ii": {
+		"repo": "seedhammer/hardware",
+		"ref": "main",
+		"file": "mainboard/pcb/mainboard.kicad_pcb",
+		"since": "2026-07-01",
+		"keep": 20,
+		"fixups": {
+			"nearest": {
+				"Package_DFN_QFN.3dshapes/VQFN-24-1EP_4x4mm_P0.5mm_EP2.45x2.45mm": "Package_DFN_QFN.3dshapes/Texas_RGE0024C_VQFN-24-1EP_4x4mm_P0.5mm_EP2.1x2.1mm",
+				"Package_DFN_QFN.3dshapes/VQFN-28-1EP_5x5mm_P0.5mm_EP3.7x3.7mm": "Package_DFN_QFN.3dshapes/QFN-28-1EP_5x5mm_P0.5mm_EP3.35x3.35mm",
+				"Package_DFN_QFN.3dshapes/VQFN-32-1EP_5x5mm_P0.5mm_EP3.5x3.5mm": "Package_DFN_QFN.3dshapes/QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm",
+				"Package_DFN_QFN.3dshapes/DFN-8-1EP_6x5mm_Pitch1.27mm": "Package_DFN_QFN.3dshapes/DFN-8-1EP_6x5mm_P1.27mm_EP4x4mm",
+				"Package_TO_SOT_SMD.3dshapes/SOT-89-5": "Package_TO_SOT_SMD.3dshapes/SOT-89-3",
+				"Connector_FFC-FPC.3dshapes/TE_5-1734839-0_1x50-1MP_P0.5mm_Horizontal": "Connector_FFC-FPC.3dshapes/Hirose_FH12-50S-0.5SH_1x50-1MP_P0.50mm_Horizontal"
+			}
+		}
+	}
+}
