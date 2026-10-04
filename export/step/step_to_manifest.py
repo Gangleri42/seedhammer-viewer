@@ -37,7 +37,7 @@ from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_SHELL, 
 from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS
-from OCP.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
+from OCP.XCAFDoc import XCAFDoc_ColorTool, XCAFDoc_ColorType, XCAFDoc_DocumentTool
 
 LINEAR_DEFLECTION = 0.01  # mm; the pipeline simplifies afterwards
 ANGULAR_DEFLECTION = 0.3  # rad
@@ -49,6 +49,11 @@ RECOGNITION_TOLERANCE = 1e-4
 POLYLINE_DEFLECTION = 0.005
 FREE_FORM_CURVES = (GeomAbs_CurveType.GeomAbs_BSplineCurve, GeomAbs_CurveType.GeomAbs_BezierCurve,
                     GeomAbs_CurveType.GeomAbs_OffsetCurve, GeomAbs_CurveType.GeomAbs_OtherCurve)
+# The measurement file keeps an arc's sweep to 6 decimals: below MIN_SWEEP nothing is left of it. Wider arcs also lose
+# length (r * 5e-7 mm): --max-radius, which the board pipeline passes for KiCad's vendor models (near-straight curves
+# that fit a circle a kilometre wide), keeps arcs at least that wide as lines when straight within tolerance, else as
+# curves. Without it every other arc stays as it always was, so measured links into existing models keep their items.
+MIN_SWEEP = 5e-7
 TWO_PI = 2 * math.pi
 
 
@@ -151,7 +156,8 @@ def chains(ids, ends):
 
 
 class Converter:
-    def __init__(self, path):
+    def __init__(self, path, max_radius=None):
+        self.max_radius = max_radius
         Interface_Static.SetCVal_s('xstep.cascade.unit', 'MM')
         self.doc = TDocStd_Document(TCollection_ExtendedString('XmlOcaf'))
         reader = STEPCAFControl_Reader()
@@ -172,9 +178,10 @@ class Converter:
     # -- colours ------------------------------------------------------------------------------------------------------
 
     def _label_color(self, label):
+        # The label lookup is static in OCCT 7.8+ (OCP's _s suffix); KiCad colours some parts only by label.
         rgba = Quantity_ColorRGBA()
         for kind in COLOR_TYPES:
-            if self.colors.GetColor(label, kind, rgba):
+            if XCAFDoc_ColorTool.GetColor_s(label, kind, rgba):
                 return rgba
         return None
 
@@ -387,15 +394,26 @@ class Converter:
             circle = curve.Circle()
             x, y = xyz(circle.XAxis().Direction()), xyz(circle.YAxis().Direction())
             ref = add(scale(x, math.cos(u1)), scale(y, math.sin(u1)))
-            return [1, a, b, *xyz(circle.Location()), *xyz(circle.Axis().Direction()), *ref, circle.Radius(),
-                    min(u2 - u1, TWO_PI)]
+            arc = [1, a, b, *xyz(circle.Location()), *xyz(circle.Axis().Direction()), *ref, circle.Radius(),
+                   min(u2 - u1, TWO_PI)]
+            return self._kept(arc, curve, u1, u2, a, b)
         if kind in FREE_FORM_CURVES:
             found = self._recognise_curve(edge)
             if isinstance(found, gp_Lin) and a >= 0 and b >= 0:
                 return [0, a, b]
             if isinstance(found, gp_Circ):
-                middle = xyz(curve.Value((u1 + u2) / 2))
-                return self._arc_through(found, start, middle, end, a, b)
+                arc = self._arc_through(found, start, xyz(curve.Value((u1 + u2) / 2)), end, a, b)
+                return self._kept(arc, curve, u1, u2, a, b)
+        return self._curve(curve, u1, u2, a, b)
+
+    def _kept(self, arc, curve, u1, u2, a, b):
+        """The arc as the measurement file can hold it, else the line (straight within tolerance) or curve it is."""
+        radius, sweep = arc[12], arc[13]
+        if sweep >= MIN_SWEEP and (self.max_radius is None or radius < self.max_radius):
+            return arc
+        sagitta = radius * (1 - math.cos(min(sweep, math.pi) / 2))
+        if sagitta < RECOGNITION_TOLERANCE and a >= 0 and b >= 0:
+            return [0, a, b]
         return self._curve(curve, u1, u2, a, b)
 
     @staticmethod
@@ -569,10 +587,11 @@ def main():
     parser.add_argument('step')
     parser.add_argument('out')
     parser.add_argument('--version', type=int, required=True)
+    parser.add_argument('--max-radius', type=float, help='arcs at least this wide (mm) become lines or curves')
     args = parser.parse_args()
 
     start = time.time()
-    converter = Converter(args.step)
+    converter = Converter(args.step, args.max_radius)
     converter.convert()
     os.makedirs(args.out, exist_ok=True)
     triangles = converter.write_meshes(args.out)
