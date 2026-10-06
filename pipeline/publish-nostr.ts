@@ -8,8 +8,9 @@
 //   5. publishes the site manifest (35128) with a snapshot (5128), then the napplet manifest (35129) with its snapshot (5129)
 //   6. fetches everything back from the relays and checks signatures and aggregates
 // Usage: npm run publish:nostr -- [--models] [--if-changed] [--dry-run] [--skip-build] [--skip-napplet] [--replace-lists] [--no-snapshot] [--min-public N] [--overview FILE]
-// It runs only where SEEDHAMMER_PUBLISHER=1 is set beside NOSTR_NSEC_FILE, and anywhere
-// else the script refuses to start, dry runs included, since those talk to the relays and servers too.
+// It runs only where SEEDHAMMER_PUBLISHER=1 is set beside NOSTR_SIGNER_FILE, a NIP-46
+// session with Amber on a phone (nostr/signer.ts), and anywhere else the script refuses to start, dry runs included,
+// since those talk to the relays and servers too.
 // The models are built, not committed: run `npm run models` first, or pass --models to have it run here.
 // --if-changed stops early when the manifests on the relays already describe this build. The relays are the record of
 // what is published; nothing about a deploy is written back into the repository. --overview writes, after a publish,
@@ -185,13 +186,7 @@ if (opts.dryRun) {
 
 // ---- signer ---------------------------------------------------------------------------------------------------------
 
-const signer: Signer = (() => {
-	try {
-		return openSigner(config.pubkey);
-	} catch (err) {
-		fail(err instanceof Error ? err.message : String(err));
-	}
-})();
+const signer: Signer = await openSigner(config.pubkey).catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)));
 log(`\nsigning as ${signer.npub}`);
 const shutdown = async () => {
 	await signer.close();

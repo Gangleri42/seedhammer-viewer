@@ -30,6 +30,7 @@
 		"@napplet/nap": "^0.32.0",
 		"@napplet/shim": "^0.30.0",
 		"@napplet/vite-plugin": "^0.14.1",
+		"@scure/base": "^2.0.0",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.63.0",
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
