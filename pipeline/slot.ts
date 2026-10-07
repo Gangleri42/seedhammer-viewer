@@ -92,14 +92,15 @@ function bodyFacts(dir: string, manifest: Manifest, pcb: Body, frame: Mat | null
 
 /**
  * How an upstream board goes into a slot: as it is ({}), shifted by `fix`, or not at all (null) when the CAD board
- * is in another frame. The boxes only need to overlap well, since the upstream outline may have changed since the
- * CAD board was imported; the bottom faces must agree exactly, or the difference becomes the fix.
+ * is in another frame or laid out another way. The boxes need to overlap well, over more than half of the larger one,
+ * since the upstream outline may have changed since the CAD board was imported; the bottom faces must agree exactly,
+ * or the difference becomes the fix.
  */
 export function register(cad: PcbFacts, board: PcbFacts): { fix?: [number, number, number] } | null {
 	const [ax0, ay0, ax1, ay1] = cad.box, [bx0, by0, bx1, by1] = board.box;
 	const overlap = Math.max(0, Math.min(ax1, bx1) - Math.max(ax0, bx0)) * Math.max(0, Math.min(ay1, by1) - Math.max(ay0, by0));
-	const smaller = Math.min((ax1 - ax0) * (ay1 - ay0), (bx1 - bx0) * (by1 - by0));
-	if (!(overlap > 0.25 * smaller)) return null;
+	const larger = Math.max((ax1 - ax0) * (ay1 - ay0), (bx1 - bx0) * (by1 - by0));
+	if (!(overlap > 0.5 * larger)) return null;
 	const dz = Number((cad.bottom - board.bottom).toFixed(4));
 	return Math.abs(dz) < 0.001 ? {} : { fix: [0, 0, dz] };
 }

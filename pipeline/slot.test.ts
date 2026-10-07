@@ -67,4 +67,10 @@ describe('registration', () => {
 		// Hammer v41: the board corner, not KiCad's page origin, at 0,0.
 		expect(register({ box: [0, -50, 119.5, 0], bottom: 0, top: 1.5162 }, upstream)).toBeNull();
 	});
+
+	it('refuses a CAD board laid out another way', () => {
+		// Hammer v74: a portrait board in the same frame, less than half of it over the landscape upstream one.
+		const landscape: PcbFacts = { box: [63, -126, 185, -73], bottom: 0, top: 1.5162 };
+		expect(register({ box: [75.15, -126, 138.15, 13], bottom: 0, top: 1.5162 }, landscape)).toBeNull();
+	});
 });
