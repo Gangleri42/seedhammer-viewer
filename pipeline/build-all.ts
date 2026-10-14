@@ -1,9 +1,10 @@
-// Builds every version of every model in the hardware repository into static/models, plus static/models/index.json.
+// Builds the newest three versions of every model in the hardware repository into static/models, plus
+// static/models/index.json. Older versions stay in the hardware repository's history.
 //
-// A version is <folder>/<Name>-v<n>.step as the commit that added it has it (see versions.ts); each is converted once
-// and cached under .cache/models, keyed by the STEP file's git blob and a hash of this pipeline, so a new push only
-// converts what is new. Models listed in boards.json also get their upstream board track (boards.ts), and each
-// version learns where that board goes (slot.ts).
+// A version is a commit's STEP file (see versions.ts), named by the commit's short hash; each is converted once and
+// cached under .cache/models, keyed by the STEP file's git blob, the CAD version number its materials follow and a
+// hash of this pipeline, so a new push only converts what is new. Models listed in boards.json also get their
+// upstream board track (boards.ts), and each version learns where that board goes (slot.ts).
 //
 //   HARDWARE_DIR    full clone of the hardware repository (default ../sh-hardware)
 //   CONVERT         command that runs Python with OCP (default "python3"),
@@ -28,7 +29,7 @@ import models from './models.json' with { type: 'json' };
 import { privateTerms } from '../scripts/privacy-rules.mjs';
 import { assertPublic } from './privacy.ts';
 import { findSlot, pcbFacts, register, type PcbFacts } from './slot.ts';
-import { pickVersions } from './versions.ts';
+import { LOG_FORMAT, pickVersions, type VersionSource } from './versions.ts';
 
 const HARDWARE = process.env.HARDWARE_DIR ?? '../sh-hardware';
 const UPSTREAM = process.env.UPSTREAM_DIR ?? '../seedhammer-hardware';
@@ -36,6 +37,8 @@ const CONVERT = (process.env.CONVERT ?? 'python3').split(' ');
 const OUT = 'static/models';
 const CACHE = '.cache/models';
 const boards = boardConfigs as unknown as Record<string, BoardConfig>;
+/** How many versions of each model the viewer lists, newest first. */
+const KEEP = 3;
 
 const git = (...args: string[]) => execFileSync('git', ['-C', HARDWARE, ...args], { encoding: 'utf8', maxBuffer: 1 << 26 }).trim();
 
@@ -54,24 +57,33 @@ const pipelineHash = createHash('sha256')
 	.digest('hex')
 	.slice(0, 12);
 
-type Source = { version: number; commit: string; date: string; path: string; blob: string };
+/** `build` names the version's cache folder: the same file at another CAD number can take other materials. */
+type Source = VersionSource & { blob: string; build: string };
 /** The CAD board's sub-assembly: its part id and its board body in its own frame. */
 type Slot = { id: string; facts: PcbFacts };
 
-/** Each version of the model's STEP file as first published; later changes to a version are reported and left out. */
+/** The newest versions of the model's STEP file, newest first; changes left out are reported. */
 function sources(folder: string): Source[] {
-	const { sources: found, ignored } = pickVersions(git('log', '--reverse', '--format=@%H %cs', '--name-only', '--diff-filter=AMR', '--', folder), folder);
+	const { sources: found, ignored } = pickVersions(git('log', '--reverse', `--format=${LOG_FORMAT}`, '--name-only', '--diff-filter=AMR', '--', folder), folder);
 	for (const change of ignored) {
-		console.warn(`${change.path} changed in ${change.commit.slice(0, 7)}; v${change.version} stays as first published so pinned links keep showing it. Export changes under a new version number.`);
+		console.warn(change.reason === 'changed'
+			? `${change.path} changed in ${change.commit.slice(0, 7)}; it stays as first published. Export changes to ${folder}/${folder}.step.`
+			: `${change.path} in ${change.commit.slice(0, 7)}: another STEP file of that commit is the version`);
 	}
-	return found.map((source) => ({ ...source, blob: git('rev-parse', `${source.commit}:${source.path}`) }));
+	return found.slice(0, KEEP).map((source) => {
+		const blob = git('rev-parse', `${source.commit}:${source.path}`);
+		return { ...source, blob, build: `${blob}-${Number.isFinite(source.number) ? source.number : 'latest'}` };
+	});
 }
 
-/** Converts one STEP version, or returns it from the cache, with its board slot and the model without that board. */
-async function build(key: string, config: ModelConfig, source: Source): Promise<{ dir: string; name: string; cached: boolean; bodies: number; triangles: number; slot: Slot | null }> {
-	const dir = `${CACHE}/${pipelineHash}/${source.blob}`;
-	const name = source.path.split('/').pop()!;
-	if (existsSync(`${dir}/done.json`)) return { dir, name, cached: true, slot: null, ...JSON.parse(readFileSync(`${dir}/done.json`, 'utf8')) };
+/**
+ * Converts one STEP version, or returns it from the cache, with its board slot and the model without that board. The
+ * zip holds the STEP file as <folder>.step, whatever the file was called in the commit.
+ */
+async function build(key: string, config: ModelConfig, source: Source): Promise<{ dir: string; cached: boolean; bodies: number; triangles: number; slot: Slot | null }> {
+	const dir = `${CACHE}/${pipelineHash}/${source.build}`;
+	const name = `${config.folder}.step`;
+	if (existsSync(`${dir}/done.json`)) return { dir, cached: true, slot: null, ...JSON.parse(readFileSync(`${dir}/done.json`, 'utf8')) };
 
 	rmSync(dir, { recursive: true, force: true });
 	mkdirSync(`${dir}/export`, { recursive: true });
@@ -80,8 +92,9 @@ async function build(key: string, config: ModelConfig, source: Source): Promise<
 	assertPublic(`${source.path}@${source.commit.slice(0, 7)}`, step.toString('latin1'));
 	writeFileSync(`${dir}/${name}`, step);
 
-	execFileSync(CONVERT[0], [...CONVERT.slice(1), 'export/step/step_to_manifest.py', `${dir}/${name}`, `${dir}/export`, '--version', String(source.version)], { stdio: 'inherit' });
-	const result = await buildModel(`${dir}/export`, config);
+	// The converter's --version only labels its manifest; the materials get the number through buildModel.
+	execFileSync(CONVERT[0], [...CONVERT.slice(1), 'export/step/step_to_manifest.py', `${dir}/${name}`, `${dir}/export`, '--version', '0'], { stdio: 'inherit' });
+	const result = await buildModel(`${dir}/export`, config, { version: source.number });
 	writeFileSync(`${dir}/model.glb`, result.glb);
 	writeFileSync(`${dir}/measure.json.gz`, result.measure);
 	const m = result.measureStats;
@@ -96,7 +109,7 @@ async function build(key: string, config: ModelConfig, source: Source): Promise<
 	const found = findSlot(manifest);
 	if (found) {
 		slot = { id: partId(found.slot.path), facts: pcbFacts(`${dir}/export`, manifest, found.pcbs, found.slot.matrix) };
-		const bare = await buildModel(`${dir}/export`, config, { omit: found.slot.path });
+		const bare = await buildModel(`${dir}/export`, config, { omit: found.slot.path, version: source.number });
 		writeFileSync(`${dir}/bare.glb`, bare.glb);
 		writeFileSync(`${dir}/bare.measure.json.gz`, bare.measure);
 	} else if (key in boards) console.warn(`${source.path}: no KiCad board body (*_PCB) in one sub-assembly, so no upstream board`);
@@ -110,7 +123,7 @@ async function build(key: string, config: ModelConfig, source: Source): Promise<
 
 	const done = { bodies: result.bodies, triangles: result.trianglesOut, slot };
 	writeFileSync(`${dir}/done.json`, JSON.stringify(done));
-	return { dir, name, cached: false, ...done };
+	return { dir, cached: false, ...done };
 }
 
 /** kicad-cli and the board repository, or null (with a warning) when either is missing and boards are optional. */
@@ -135,12 +148,13 @@ const kicad = Object.keys(boards).some((key) => key in models) ? kicadSetup() : 
 // Builds made by an older pipeline can never be used again.
 for (const stale of existsSync(CACHE) ? readdirSync(CACHE).filter((d) => d !== pipelineHash) : []) rmSync(`${CACHE}/${stale}`, { recursive: true });
 rmSync(OUT, { recursive: true, force: true });
-// index.json is schema v3: every file with its size and sha256, so the viewer can name it by content on Blossom.
-const index: ModelIndex = { version: 3, models: {} };
+// index.json is schema v4: every file with its size and sha256, so the viewer can name it by content on Blossom.
+const index: ModelIndex = { version: 4, models: {} };
+const usedVersions = new Set<string>();
 for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 	const versions = sources(config.folder);
 	if (!versions.length) {
-		console.warn(`${key}: no ${config.folder}/<Name>-v<n>.step in ${HARDWARE}`);
+		console.warn(`${key}: no ${config.folder}/${config.folder}.step or ${config.folder}/<Name>-v<n>.step in ${HARDWARE}`);
 		continue;
 	}
 	mkdirSync(`${OUT}/${key}`, { recursive: true });
@@ -150,24 +164,24 @@ for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 	for (const source of versions) {
 		const started = Date.now();
 		const built = await build(key, config, source);
+		usedVersions.add(source.build);
 		slots.push(built.slot);
-		const glb = `${key}/v${source.version}.glb`;
-		const step = `${key}/${built.name}.zip`;
-		const measure = `${key}/v${source.version}.measure.json.gz`;
+		const glb = `${key}/${source.id}.glb`;
+		const step = `${key}/${key}-${source.id}.step.zip`;
+		const measure = `${key}/${source.id}.measure.json.gz`;
 		copyFileSync(`${built.dir}/model.glb`, `${OUT}/${glb}`);
 		copyFileSync(`${built.dir}/step.zip`, `${OUT}/${step}`);
 		copyFileSync(`${built.dir}/measure.json.gz`, `${OUT}/${measure}`);
 		entries.push({
-			version: source.version,
+			id: source.id,
+			date: source.date,
 			glb: fileEntry(glb),
 			step: fileEntry(step),
 			measure: fileEntry(measure),
 			triangles: built.triangles,
-			bodies: built.bodies,
-			built: source.date,
-			commit: source.commit.slice(0, 7)
+			bodies: built.bodies
 		});
-		console.log(`${key} v${source.version} (${source.commit.slice(0, 7)}): ${built.cached ? 'cached' : `built in ${((Date.now() - started) / 1000).toFixed(1)} s`}, ` +
+		console.log(`${key} ${source.id} (${source.path}): ${built.cached ? 'cached' : `built in ${((Date.now() - started) / 1000).toFixed(1)} s`}, ` +
 			`${built.triangles.toLocaleString()} triangles, ${(statSync(`${OUT}/${glb}`).size / 1e6).toFixed(2)} MB`);
 	}
 
@@ -189,23 +203,27 @@ for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 			if (!slot || !board.facts) return;
 			const fit = register(slot.facts, board.facts);
 			if (fit) entry.slot = { id: slot.id, ...fit };
-			else console.warn(`${key} v${entry.version}: its CAD board sits in another frame, so it shows only that board`);
+			else console.warn(`${key} ${entry.id}: its CAD board sits in another frame, so it shows only that board`);
 		});
 		const latest = entries[0];
 		if (!latest.slot && slots[0] && board.facts && !track.failed) {
 			// Said in the index too, or the viewer would quietly show the CAD board only.
-			track.failed = { commit: track.revisions[0].commit, reason: `the board does not line up with the CAD board of v${latest.version}` };
+			track.failed = { commit: track.revisions[0].commit, reason: `the board does not line up with the CAD board of ${latest.id}` };
 		}
 		if (latest.slot) {
-			const dir = `${CACHE}/${pipelineHash}/${versions[0].blob}`;
-			copyFileSync(`${dir}/bare.glb`, `${OUT}/${key}/v${latest.version}.bare.glb`);
-			copyFileSync(`${dir}/bare.measure.json.gz`, `${OUT}/${key}/v${latest.version}.bare.measure.json.gz`);
-			latest.bare = { glb: fileEntry(`${key}/v${latest.version}.bare.glb`), measure: fileEntry(`${key}/v${latest.version}.bare.measure.json.gz`) };
+			const dir = `${CACHE}/${pipelineHash}/${versions[0].build}`;
+			copyFileSync(`${dir}/bare.glb`, `${OUT}/${key}/${latest.id}.bare.glb`);
+			copyFileSync(`${dir}/bare.measure.json.gz`, `${OUT}/${key}/${latest.id}.bare.measure.json.gz`);
+			latest.bare = { glb: fileEntry(`${key}/${latest.id}.bare.glb`), measure: fileEntry(`${key}/${latest.id}.bare.measure.json.gz`) };
 		}
 	}
-	index.models[key] = { title: config.title, latest: versions[0].version, versions: entries, ...(board ? { board: board.track } : {}) };
+	index.models[key] = { title: config.title, latest: versions[0].id, versions: entries, ...(board ? { board: board.track } : {}) };
 }
 writeFileSync(`${OUT}/index.json`, serialize(index));
+// Versions that dropped out of the newest three are never built again.
+for (const entry of existsSync(`${CACHE}/${pipelineHash}`) ? readdirSync(`${CACHE}/${pipelineHash}`) : []) {
+	if (/^[0-9a-f]{40}(-\w+)?$/.test(entry) && !usedVersions.has(entry)) rmSync(`${CACHE}/${pipelineHash}/${entry}`, { recursive: true });
+}
 // Every board was walked: exports and board builds this run did not use can never be used again.
 if (kicad) {
 	if (existsSync('.cache/boards')) {

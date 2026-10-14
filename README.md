@@ -8,6 +8,13 @@ views, measuring and STEP download. Every view is a shareable link.
 - Models: [Gangleri42/sh-hardware](https://github.com/Gangleri42/sh-hardware)
 - Boards: [seedhammer/hardware](https://github.com/seedhammer/hardware), the KiCad sources, exported into each model
 
+## Versions
+
+The viewer lists the newest three versions of each model. A version is a commit to the model's STEP file in the
+hardware repository and is named by that commit's short hash, so a pinned link reads `#/hammer@02a4106`. Older
+versions stay in the hardware repository's history. A link to a version the viewer no longer lists opens the latest
+and says so.
+
 ## Develop
 
 ```sh

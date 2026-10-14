@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { blobUrl, blossomUri, parseBlossomUri } from './blossom';
 
 const sha = 'a'.repeat(64);
-const file = { path: 'hammer/v41.glb', bytes: 2232812, sha256: sha };
+const file = { path: 'hammer/02a4106.glb', bytes: 2232812, sha256: sha };
 
 describe('blossom', () => {
 	it('addresses a blob on a server', () => {

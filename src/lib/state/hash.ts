@@ -1,7 +1,10 @@
 // The whole view lives in the URL hash so a link reproduces it:
-//   #/hammer@41?b=7ac023b&hide=a3,b0&iso=c7&cut=x:12.5!,z:-3&ex=0.6&cam=12.1,-300,250;0,0,80&sel=a3&m=k3x9a1.f12.q7&edges=0&ortho=1
-// No version means "latest". Unknown keys are ignored, so old links survive new features. b names the board: an
-// upstream revision or "cad" for the one exported with the model (see src/lib/models/boards.ts for the defaults).
+//   #/hammer@02a4106?b=7ac023b&hide=a3,b0&iso=c7&cut=x:12.5!,z:-3&ex=0.6&cam=12.1,-300,250;0,0,80&sel=a3&m=k3x9a1.f12.q7&edges=0&ortho=1
+// No version means "latest". A version is the hardware repository commit its model came from, 7 to 40 hex digits.
+// Links from before that named a version by number (#/hammer@41): such a version is no longer shown, and the number is
+// kept as it was written so the viewer can say so and open the latest instead. Unknown keys are ignored, so old links
+// survive new features. b names the board: an upstream revision or "cad" for the one exported with the model (see
+// src/lib/models/boards.ts for the defaults).
 
 export type Axis = 'x' | 'y' | 'z';
 export type Cut = { axis: Axis; offset: number; flip: boolean };
@@ -17,7 +20,8 @@ export type MeasureRef = { part: string; kind: MeasureKind; index: number; check
 
 export type ViewState = {
 	model: string;
-	version: number | null;
+	/** A commit id, or what a link named that no index lists (an old number, a mistyped id), in lowercase; null for the latest. */
+	version: string | null;
 	/** An upstream board revision, "cad", or null for the default: the latest board, or "cad" on a pinned version. */
 	board: string | null;
 	hidden: string[];
@@ -95,7 +99,8 @@ function triple(text: string | undefined): [number, number, number] | null {
 	return parts?.length === 3 && parts.every(Number.isFinite) ? (parts as [number, number, number]) : null;
 }
 
-const ROUTE = /^#\/([a-z0-9-]+)(?:@(\d+))?(?:\?(.*))?$/i;
+// Any version is kept, in lowercase: one that no index lists (an old number, a mistyped id) opens the model's latest.
+const ROUTE = /^#\/([a-z0-9-]+)(?:@([0-9a-z]{1,40}))?(?:\?(.*))?$/i;
 const QUERY = /^[\w.,:;!=&%-]*$/;
 
 /** Whether the text has the shape of a route: model, optional version, and a query made of the grammar's characters. */
@@ -108,7 +113,7 @@ export function decode(hash: string): ViewState {
 	const match = ROUTE.exec(hash);
 	if (!match) return defaultState();
 	const state = defaultState(match[1].toLowerCase());
-	state.version = match[2] ? Number(match[2]) : null;
+	state.version = match[2]?.toLowerCase() ?? null;
 	const params = new URLSearchParams(match[3] ?? '');
 	const board = params.get('b');
 	if (board && BOARD.test(board)) state.board = board;

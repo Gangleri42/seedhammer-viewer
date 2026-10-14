@@ -25,4 +25,16 @@ describe('finishes by version', () => {
 		expect(finishesFor(seed, 20).get('Skeleton')).toMatchObject({ kind: 'metal', appearance: 'Chrom - Schwarz' });
 		expect(finishesFor(seed, 22).get('Skeleton')).toMatchObject({ kind: 'glass', appearance: 'Polykarbonat (klar)', opacity: 0.4 });
 	});
+
+	it('treats an export without a number as newer than every numbered version', () => {
+		expect(finishesFor([glass], Infinity).get('housing')?.kind).toBe('glass');
+		expect(finishesFor([metal], Infinity).has('housing')).toBe(false);
+	});
+
+	it('blackens the Hammer fasteners under their German and their English names', () => {
+		const hammer = (models as Record<string, ModelConfig>).hammer.materials;
+		for (const name of ['Innensechskantschraube DIN 912 - M3 x 0.5 x 12 Stahl 4.6 Einfach', 'M3x12 cyl. hex', 'M5 self-locking Nut', 'M5x8 set screw']) {
+			expect(finishesFor(hammer, 75).get(name)).toMatchObject({ kind: 'metal', appearance: 'Beschichtung - brüniert' });
+		}
+	});
 });

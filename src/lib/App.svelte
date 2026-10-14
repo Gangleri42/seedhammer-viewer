@@ -4,6 +4,7 @@
 	import { readMeasure, type MeasureFile } from '$lib/measure/format';
 	import { boardParam, chooseBoard, filesFor, revisionLabel, type BoardChoice } from '$lib/models/boards';
 	import type { ModelFile, ModelIndex } from '$lib/models/types';
+	import { findVersion, versionLabel } from '$lib/models/versions';
 	import { decode, defaultState, encode, sameRef, DEFAULT_MODEL, type Axis, type Cut, type MeasureRef, type ViewState } from '$lib/state/hash';
 	import { theme } from '$lib/theme.svelte';
 	import MeasurePanel from '$lib/ui/MeasurePanel.svelte';
@@ -52,7 +53,7 @@
 	const measuring = $derived(measureOpen || view.measure.length > 0);
 
 	const entry = $derived(index ? (index.models[view.model] ?? index.models[DEFAULT_MODEL]) : null);
-	const current = $derived(entry ? (entry.versions.find((v) => v.version === view.version) ?? entry.versions[0]) : null);
+	const current = $derived(entry ? (findVersion(entry, view.version) ?? entry.versions[0]) : null);
 	// The board in the model's slot (src/lib/models/boards.ts). A board that failed to load shows as in CAD instead.
 	let brokenBoard = $state<string | null>(null);
 	const picked = $derived(entry && current ? chooseBoard(entry, current, view.board, view.version !== null) : null);
@@ -61,7 +62,7 @@
 		return c.kind === 'upstream' && c.revision.id === brokenBoard ? { kind: 'cad', possible: true } : c;
 	});
 	const files = $derived(current ? filesFor(current, choice) : null);
-	const key = $derived(current ? `${view.model}@${current.version}:${choice.kind === 'upstream' ? choice.revision.id : 'cad'}` : null);
+	const key = $derived(current ? `${view.model}@${current.id}:${choice.kind === 'upstream' ? choice.revision.id : 'cad'}` : null);
 	const pinnedBoard = $derived(choice.kind === 'upstream' ? ` and board ${choice.revision.commit}` : '');
 	const hidden = $derived(new Set(view.hidden));
 	const isolated = $derived(new Set(view.isolated));
@@ -137,6 +138,8 @@
 		const stopRoutes = host.onRoute((route) => {
 			if (route === routeOf(view.version)) return;
 			const next = decode(route);
+			gone = '';
+			notice = '';
 			const sameModel = next.model === view.model && next.version === view.version;
 			view = next;
 			if (sameModel && next.camera) viewer?.setCamera(next.camera);
@@ -148,6 +151,20 @@
 			instance?.dispose();
 		};
 	});
+
+	// A link to a version the index no longer lists, or with a number from before versions were commits, opens the
+	// latest. The view stays pinned, so the link's board and measured items follow the pinned rules, and what the latest
+	// does not have drops out below with a word.
+	const GONE = 'The version in this link is no longer shown, so the latest opened.';
+	let gone = '';
+	$effect(() => {
+		if (!entry || view.version === null || findVersion(entry, view.version)) return;
+		view.version = entry.versions[0].id;
+		gone = GONE;
+		notice = GONE;
+	});
+	/** A notice about what a link asked for, after the word on its version if that is gone. */
+	const linkNotice = (text: string) => (gone ? `${gone} ${text}` : text);
 
 	// Load the model whenever the model or version changes. Only the newest request may touch the scene: a load that a
 	// quick switch overtook is dropped when its bytes or its parse arrive, and switching back to the model on screen
@@ -164,7 +181,6 @@
 			return;
 		}
 		const target = key;
-		const version = current.version;
 		const title = entry?.title ?? 'the model';
 		const shown = choice;
 		const missing = picked?.missing;
@@ -182,7 +198,7 @@
 		const file = wasm === false ? current.plain : files.glb;
 		if (!file) {
 			progress = null;
-			error = `This host blocks WebAssembly, which the compressed model needs, and v${version} has no uncompressed copy.`;
+			error = 'This host blocks WebAssembly, which the compressed model needs, and this version has no uncompressed copy.';
 			return;
 		}
 		const board = shown.kind === 'upstream' ? shown : null;
@@ -212,7 +228,7 @@
 				loaded = target;
 				const stale = [...wanted.hidden, ...wanted.isolated, ...(wanted.selected ? [wanted.selected] : [])].filter((id) => !index.byId.has(id));
 				if (stale.length) {
-					notice = `${stale.length} part${stale.length > 1 ? 's' : ''} from this link ${stale.length > 1 ? 'are' : 'is'} not in v${version}.`;
+					notice = linkNotice(`${stale.length} part${stale.length > 1 ? 's' : ''} from this link ${stale.length > 1 ? 'are' : 'is'} not in this version.`);
 					view.hidden = view.hidden.filter((id) => index.byId.has(id));
 					view.isolated = view.isolated.filter((id) => index.byId.has(id));
 					if (view.selected && !index.byId.has(view.selected)) view.selected = null;
@@ -221,7 +237,7 @@
 					// The link's board is gone: its measured board items would land on another board's parts.
 					const onBoard = (id: string) => index.byId.get(id)?.object.userData.source === 1;
 					view.measure = view.measure.filter((ref) => !onBoard(ref.part));
-					notice = `Board ${missing} is no longer in ${board.track.source.repo}; this is the latest, ${board.revision.commit}.`;
+					notice = linkNotice(`Board ${missing} is no longer in ${board.track.source.repo}; this is the latest, ${board.revision.commit}.`);
 				}
 				homeCamera = cameraKey(viewer!.getCamera());
 				if (wanted.camera) viewer!.setCamera(wanted.camera);
@@ -363,7 +379,7 @@
 		const keep = refs.filter((ref) => measureTool!.valid(ref));
 		if (keep.length < refs.length) {
 			const n = refs.length - keep.length;
-			notice = `${n} measured item${n > 1 ? 's' : ''} from this link ${n > 1 ? 'are' : 'is'} not in v${current?.version}.`;
+			notice = linkNotice(`${n} measured item${n > 1 ? 's' : ''} from this link ${n > 1 ? 'are' : 'is'} not in this version.`);
 			view.measure = keep;
 		}
 	});
@@ -381,8 +397,8 @@
 	 * Measured items only mean something for one version and board: a route that carries them names both. A route that
 	 * pins or unpins the version names the board on screen, whatever the other route's default would be.
 	 */
-	function routeOf(version: number | null) {
-		const pinned = view.measure.length ? (current?.version ?? version) : version;
+	function routeOf(version: string | null) {
+		const pinned = view.measure.length ? (current?.id ?? version) : version;
 		const board = pinned === view.version ? view.board : boardParam(choice, pinned !== null);
 		return encode({ ...view, version: pinned, board });
 	}
@@ -435,12 +451,13 @@
 	function switchModel(model: string) {
 		if (model === view.model && view.version === null) return;
 		brokenBoard = null;
+		gone = '';
 		view = { ...defaultState(model), edges: view.edges, ortho: view.ortho };
 		notice = '';
 	}
 	/** The share menu's route: pinned to the version on screen, or following the latest. */
 	function shareRoute() {
-		return routeOf(pin ? (current?.version ?? null) : null);
+		return routeOf(pin ? (current?.id ?? null) : null);
 	}
 	function openMeasure() {
 		measureOpen = true;
@@ -492,7 +509,7 @@
 
 <svelte:window onkeydown={onKey} />
 <svelte:head>
-	<title>{entry ? `${entry.title} v${current?.version}` : 'SeedHammer'} · 3D viewer</title>
+	<title>{entry?.title ?? 'SeedHammer'} · 3D viewer</title>
 </svelte:head>
 
 <main class:panel-open={panelOpen} class:measure-open={measuring && !narrow}>
@@ -510,9 +527,11 @@
 				<select
 					class="version"
 					aria-label="Version"
-					value={view.version ?? 'latest'}
+					value={view.version === null ? 'latest' : (current?.id ?? 'latest')}
 					onchange={(e) => {
-						const next = e.currentTarget.value === 'latest' ? null : Number(e.currentTarget.value);
+						const next = e.currentTarget.value === 'latest' ? null : e.currentTarget.value;
+						gone = '';
+						notice = '';
 						// The board on screen stays, whichever board the other version would show by default.
 						view.board = boardParam(choice, next !== null);
 						view.version = next;
@@ -520,9 +539,9 @@
 						view.measure = [];
 					}}
 				>
-					<option value="latest">v{entry.latest}{narrow ? '' : ' · latest'}</option>
-					{#each entry.versions as v (v.version)}
-						<option value={v.version}>v{v.version} · {v.built}</option>
+					<option value="latest">{entry.versions[0].id}{narrow ? '' : ' · latest'}</option>
+					{#each entry.versions as v (v.id)}
+						<option value={v.id}>{versionLabel(v)}</option>
 					{/each}
 				</select>
 			{/if}
@@ -538,9 +557,9 @@
 					<div class="menu" role="menu">
 						<p>The link keeps parts, cuts, explode, camera and measurements.</p>
 						{#if current && view.measure.length}
-							<label class="pin"><input type="checkbox" checked disabled /> Pin to v{current.version}{pinnedBoard} <small>measurements belong to this version</small></label>
+							<label class="pin"><input type="checkbox" checked disabled /> Pin to this version{pinnedBoard} <small>measurements belong to this version</small></label>
 						{:else if current}
-							<label class="pin"><input type="checkbox" bind:checked={pin} /> Pin to v{current.version}{pinnedBoard} <small>otherwise always the latest</small></label>
+							<label class="pin"><input type="checkbox" bind:checked={pin} /> Pin to this version{pinnedBoard} <small>otherwise always the latest</small></label>
 						{/if}
 						{#each links as link (link.id)}
 							<button role="menuitem" onclick={() => share(link)}>{copied === link.id ? 'Copied' : link.label} <small>{link.hint}</small></button>
@@ -563,7 +582,7 @@
 					</button>
 					{#if stepOpen}
 						<div class="menu" role="menu">
-							{#each [{ label: `${entry?.title} v${current.version}`, hint: 'as exported from CAD', file: current.step }, { label: `Board ${choice.revision.commit}`, hint: `${choice.track.source.repo}, KiCad export`, file: choice.revision.step }] as item (item.label)}
+							{#each [{ label: `${entry?.title} ${current.id}`, hint: 'as exported from CAD', file: current.step }, { label: `Board ${choice.revision.commit}`, hint: `${choice.track.source.repo}, KiCad export`, file: choice.revision.step }] as item (item.label)}
 								{@const step = host.step(item.file)}
 								{#if step.download}
 									<a role="menuitem" href={step.url} download>{item.label} <small>{item.hint} · {mb(item.file.bytes)} zipped</small></a>
@@ -621,7 +640,7 @@
 						{#if choice.kind === 'upstream'}
 							{track.source.repo} · {track.source.ref}{choice.revision.subject ? ` · ${choice.revision.subject}` : ''}
 						{:else}
-							the board exported with v{current?.version}
+							the board exported with this version
 						{/if}
 					</small>
 					{#if track.failed}
@@ -665,7 +684,6 @@
 				status={measureStatus}
 				progress={measureProgress}
 				error={measureError}
-				version={current?.version ?? null}
 				{snapping}
 				{precision}
 				{touch}
@@ -724,7 +742,7 @@
 	{#if progress !== null && !error}
 		<div class="loading" role="status">
 			<div class="bar"><div style:width="{Math.round((progress ?? 0) * 100)}%"></div></div>
-			<span>Loading {entry?.title ?? ''}{current && files ? ` v${current.version}${files.board ? ` + board ${files.board.commit}` : ''} · ${mb(files.glb.bytes + (files.board?.glb.bytes ?? 0))}` : ''}</span>
+			<span>Loading {entry?.title ?? ''}{current && files ? ` ${current.id}${files.board ? ` + board ${files.board.commit}` : ''} · ${mb(files.glb.bytes + (files.board?.glb.bytes ?? 0))}` : ''}</span>
 		</div>
 	{/if}
 	{#if error}
@@ -1225,7 +1243,7 @@
 			padding: 6px 7px;
 		}
 		.version {
-			max-width: 64px;
+			max-width: 88px;
 		}
 		.actions {
 			gap: 4px;

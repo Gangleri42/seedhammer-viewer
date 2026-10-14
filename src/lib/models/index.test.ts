@@ -8,15 +8,15 @@ import type { ModelFile, ModelIndex } from './types';
 
 const INDEX = 'static/models/index.json';
 const built = existsSync(INDEX);
-const index: ModelIndex = built ? JSON.parse(readFileSync(INDEX, 'utf8')) : { version: 3, models: {} };
+const index: ModelIndex = built ? JSON.parse(readFileSync(INDEX, 'utf8')) : { version: 4, models: {} };
 const files = Object.values(index.models).flatMap((m) => [
 	...m.versions.flatMap((v) => [v.glb, v.step, v.measure, v.plain, v.bare?.glb, v.bare?.measure]),
 	...(m.board?.revisions ?? []).flatMap((r) => [r.glb, r.measure, r.step])
 ]).filter((f): f is ModelFile => !!f);
 /** Every GLB with its measurement file: each version as exported, the latest without its board, every board. */
 const measured = Object.entries(index.models).flatMap(([key, m]): [string, { glb: ModelFile; measure: ModelFile }][] => [
-	...m.versions.filter((v) => v.measure).map((v): [string, { glb: ModelFile; measure: ModelFile }] => [`${key} v${v.version}`, { glb: v.glb, measure: v.measure! }]),
-	...m.versions.filter((v) => v.bare?.measure).map((v): [string, { glb: ModelFile; measure: ModelFile }] => [`${key} v${v.version} bare`, { glb: v.bare!.glb, measure: v.bare!.measure! }]),
+	...m.versions.filter((v) => v.measure).map((v): [string, { glb: ModelFile; measure: ModelFile }] => [`${key} ${v.id}`, { glb: v.glb, measure: v.measure! }]),
+	...m.versions.filter((v) => v.bare?.measure).map((v): [string, { glb: ModelFile; measure: ModelFile }] => [`${key} ${v.id} bare`, { glb: v.bare!.glb, measure: v.bare!.measure! }]),
 	...(m.board?.revisions ?? []).map((r): [string, { glb: ModelFile; measure: ModelFile }] => [`${key} board ${r.id}`, r])
 ]);
 
@@ -28,13 +28,19 @@ function glbJson(path: string) {
 const unit = (v: number[]) => Math.abs(Math.hypot(...v) - 1) < 1e-5;
 
 describe.skipIf(!built)('static/models/index.json', () => {
-	it('is schema v3 with every model sorted newest first', () => {
-		expect(index.version).toBe(3);
+	it('is schema v4 with at most three versions per model, newest first, named by commit', () => {
+		expect(index.version).toBe(4);
 		expect(Object.keys(index.models).length).toBeGreaterThan(0);
 		for (const entry of Object.values(index.models)) {
 			expect(entry.versions.length).toBeGreaterThan(0);
-			expect(entry.latest).toBe(entry.versions[0].version);
-			expect([...entry.versions].sort((a, b) => b.version - a.version)).toEqual(entry.versions);
+			expect(entry.versions.length).toBeLessThanOrEqual(3);
+			expect(entry.latest).toBe(entry.versions[0].id);
+			for (const v of entry.versions) {
+				expect(v.id).toMatch(/^[0-9a-f]{7}$/);
+				expect(v.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+			}
+			expect(new Set(entry.versions.map((v) => v.id)).size).toBe(entry.versions.length);
+			expect([...entry.versions].sort((a, b) => b.date.localeCompare(a.date))).toEqual(entry.versions);
 			if (entry.board) expect(entry.board.latest).toBe(entry.board.revisions[0]?.id ?? null);
 		}
 	});
@@ -58,6 +64,8 @@ describe.skipIf(!built)('static/models/index.json', () => {
 		expect(data.byteLength).toBe(file.bytes);
 		expect(createHash('sha256').update(data).digest('hex')).toBe(file.sha256);
 		expect(file.path).not.toMatch(/^\/|\.\./);
+		// Versions are named by commit, never by CAD version number.
+		expect(file.path).not.toMatch(/(^|[/-])v\d+[.-]/i);
 	});
 });
 

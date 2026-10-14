@@ -100,7 +100,7 @@ jobs:
       - run: npm ci
       - run: npm test
       # kicad-cli runs from KiCad's image, pinned by digest in the script, and only for board revisions not cached.
-      - name: Convert every model version and board revision
+      - name: Convert the newest model versions and every board revision
         run: npm run models
         env:
           HARDWARE_DIR: sh-hardware

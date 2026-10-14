@@ -48,7 +48,7 @@ export function revisionLabel(revision: BoardRevision) {
 
 /** The files a model opens with (its latest version, unpinned, with the default board), measurement files included. */
 export function openingFiles(entry: ModelEntry): ModelFile[] {
-	const latest = entry.versions.find((v) => v.version === entry.latest) ?? entry.versions[0];
+	const latest = entry.versions.find((v) => v.id === entry.latest) ?? entry.versions[0];
 	const files = filesFor(latest, chooseBoard(entry, latest, null, false).choice);
 	return [files.glb, files.measure, files.board?.glb, files.board?.measure].filter((file): file is ModelFile => !!file);
 }

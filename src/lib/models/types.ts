@@ -1,12 +1,16 @@
-// The model manifest, static/models/index.json (schema v3), written by pipeline/build-all.ts and never committed.
-// Every version of every model is listed with its files' byte sizes and sha256 hashes: the hash is the name a
-// Blossom server serves the file under, so the viewer can ask for a file by content wherever it runs. Schema v3 adds
-// the upstream boards (`board`, `slot`, `bare`); a v2 reader ignores them and shows each version as exported.
+// The model manifest, static/models/index.json (schema v4), written by pipeline/build-all.ts and never committed.
+// The newest three versions of each model are listed with their files' byte sizes and sha256 hashes: the hash is the
+// name a Blossom server serves the file under, so the viewer can ask for a file by content wherever it runs.
+// Schema v3 added the upstream boards (`board`, `slot`, `bare`). Schema v4 names a version by the hardware repository
+// commit its STEP file came from (`id`, `date`) instead of a number, and `latest` is that id.
 
 export type ModelFile = { path: string; bytes: number; sha256: string };
 
 export type ModelVersion = {
-	version: number;
+	/** The short hash of the hardware repository commit the STEP file came from; links name the version by it. */
+	id: string;
+	/** That commit's date, UTC, YYYY-MM-DD. */
+	date: string;
 	/** The model as exported from CAD, board included ("as in CAD"). */
 	glb: ModelFile;
 	step: ModelFile;
@@ -16,9 +20,6 @@ export type ModelVersion = {
 	plain?: ModelFile;
 	triangles: number;
 	bodies: number;
-	built: string;
-	/** The hardware repository commit the STEP came from. */
-	commit?: string;
 	/**
 	 * Where an upstream board goes: the part id of the CAD board's sub-assembly, and a shift for exports whose board sits
 	 * off KiCad's frame. Missing when the CAD board is in another frame; such a version shows only its CAD board.
@@ -61,10 +62,11 @@ export type BoardTrack = {
 	revisions: BoardRevision[];
 };
 
-export type ModelEntry = { title: string; latest: number; versions: ModelVersion[]; board?: BoardTrack };
+/** `versions` newest first; `latest` is the newest one's id. */
+export type ModelEntry = { title: string; latest: string; versions: ModelVersion[]; board?: BoardTrack };
 
 export type ModelIndex = {
-	version: 2 | 3;
+	version: 4;
 	/** Blossom servers known to hold the files, most reliable first. Optional hints; hosts may know better. */
 	servers?: string[];
 	models: Record<string, ModelEntry>;

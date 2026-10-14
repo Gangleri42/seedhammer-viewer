@@ -10,7 +10,6 @@
 		/** 0..1 while the measurement file loads; null when the size is unknown. */
 		progress: number | null;
 		error: string;
-		version: number | null;
 		snapping: boolean;
 		precision: number;
 		touch: boolean;
@@ -24,7 +23,7 @@
 		onFocus: (key: string | null) => void;
 		onCopy: (text: string) => Promise<boolean>;
 	};
-	let { outcome, status, progress, error, version, snapping, precision, touch, onSnapping, onPrecision, onRemove, onSwap, onClear, onClose, onRetry, onFocus, onCopy }: Props = $props();
+	let { outcome, status, progress, error, snapping, precision, touch, onSnapping, onPrecision, onRemove, onSwap, onClear, onClose, onRetry, onFocus, onCopy }: Props = $props();
 
 	const PRECISIONS = [1, 2, 3, 4];
 	let copied = $state<string | null>(null);
@@ -89,7 +88,7 @@
 	{:else if status === 'error'}
 		<p class="status error" role="alert">{error} <button class="link" onclick={onRetry}>Retry</button></p>
 	{:else if status === 'unavailable'}
-		<p class="status">Measuring is not available for v{version}.</p>
+		<p class="status">Measuring is not available for this version.</p>
 	{/if}
 
 	<div aria-live="polite">

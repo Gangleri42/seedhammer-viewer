@@ -35,11 +35,12 @@ const decoded = (text: unknown) => {
 export function routeFromPayload(payload: unknown): string | null {
 	if (!payload || typeof payload !== 'object') return null;
 	const p = payload as Record<string, unknown>;
-	// A runtime that did not percent-decode the query hands over "%2Fhammer%4041"; accept that too.
+	// A runtime that did not percent-decode the query hands over "%2Fhammer%4002a4106"; accept that too.
 	const route = normalizeRoute(p.route) ?? normalizeRoute(decoded(p.route));
 	if (route) return route;
 	if (typeof p.model === 'string' && /^[a-z0-9-]+$/i.test(p.model)) {
-		const version = typeof p.version === 'string' && /^\d+$/.test(p.version) ? `@${p.version}` : '';
+		// A commit id, or a number from before versions were commits (the viewer then opens the latest).
+		const version = typeof p.version === 'string' && /^([0-9a-f]{7,40}|\d{1,6})$/i.test(p.version) ? `@${p.version.toLowerCase()}` : '';
 		return `#/${p.model.toLowerCase()}${version}`;
 	}
 	return null;

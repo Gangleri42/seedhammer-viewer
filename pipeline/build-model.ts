@@ -37,7 +37,8 @@ export type ModelConfig = {
 	 * STEP carries colours, not materials. Each entry makes the listed bodies (by body name, or component name for all
 	 * its bodies) metal or glass. Metal applies to faces in the body's own colour only, so faces with a colour of their
 	 * own keep it; glass applies to the whole body. `appearance` names the Fusion appearance the entry came from.
-	 * `from` and `until` limit an entry to a range of versions (both inclusive), for a part whose material changed.
+	 * `from` and `until` limit an entry to a range of CAD version numbers (both inclusive), for a part whose material
+	 * changed. The number comes from the export (see versions.ts) and is used for this only.
 	 * `opacity` sets a glass entry's opacity, which otherwise follows how dark its tint is.
 	 */
 	materials?: {
@@ -122,7 +123,6 @@ export type BuildResult = {
 	glb: Uint8Array;
 	/** The gzipped measurement file (src/lib/measure/format.ts). */
 	measure: Uint8Array;
-	version: number;
 	doc: string;
 	bodies: number;
 	trianglesIn: number;
@@ -130,7 +130,7 @@ export type BuildResult = {
 	measureStats: MeasureStats & { json: number; mirrored: number };
 };
 
-/** The finish of each listed part in `version`; a later entry overrides an earlier one for the same part. */
+/** The finish of each listed part at CAD version `version`; a later entry overrides an earlier one for the same part. */
 export function finishesFor(materials: ModelConfig['materials'], version: number) {
 	const finishes = new Map<string, Finish>();
 	for (const entry of materials ?? []) {
@@ -147,6 +147,8 @@ export type BuildOptions = {
 	fasteners?: boolean;
 	/** An occurrence whose contents are left out; the occurrence itself stays, empty (the enclosure without its board). */
 	omit?: string;
+	/** The CAD version number the materials' `from` and `until` compare with; default the manifest's. */
+	version?: number;
 };
 
 /** Builds the GLB for the export in `src`. Throws if the result would carry private data. */
@@ -164,7 +166,7 @@ export async function buildModel(src: string, config: Pick<ModelConfig, 'title' 
 	const scale = manifest.units === 'mm' ? 1 : 10;
 	const stats = { trianglesIn: 0, trianglesOut: 0, bodies: 0 };
 
-	const finishes = finishesFor(config.materials, manifest.version);
+	const finishes = finishesFor(config.materials, options.version ?? manifest.version);
 	const finishOf = (idx: number) => finishes.get(manifest.meshes[idx].body) ?? finishes.get(manifest.meshes[idx].component);
 
 	/**
@@ -292,7 +294,7 @@ export async function buildModel(src: string, config: Pick<ModelConfig, 'title' 
 	const root = doc.createNode(config.title)
 		.setScale([0.001, 0.001, 0.001])
 		.setRotation([-Math.SQRT1_2, 0, 0, Math.SQRT1_2])
-		.setExtras({ doc: manifest.doc, version: manifest.version, units: 'mm', up: 'z' });
+		.setExtras({ doc: manifest.doc, units: 'mm', up: 'z' });
 	doc.createScene(config.title).addChild(root);
 
 	const nodes = new Map<string | null, Node>([[null, root]]);
@@ -343,7 +345,6 @@ export async function buildModel(src: string, config: Pick<ModelConfig, 'title' 
 	return {
 		glb,
 		measure: measure.bytes,
-		version: manifest.version,
 		doc: manifest.doc,
 		bodies: stats.bodies,
 		trianglesIn: stats.trianglesIn,

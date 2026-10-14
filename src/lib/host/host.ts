@@ -22,7 +22,7 @@ export type ShareLink = {
 export type StepAction = { url: string; download: boolean; open?: () => Promise<boolean> };
 
 export interface Host {
-	/** The route to open with, in the hash grammar: "#/hammer@41?cut=x:12.5". Empty for the default view. */
+	/** The route to open with, in the hash grammar: "#/hammer@02a4106?cut=x:12.5". Empty for the default view. */
 	initialRoute(): string;
 	/** Routes that arrive later (a hash change, an intent from the shell). Returns the unsubscribe. */
 	onRoute(listener: (route: string) => void): () => void;
