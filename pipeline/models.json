@@ -340,10 +340,30 @@
 				"opacity": 0.55,
 				"parts": [
 					"Frame",
-					"Battery_door",
-					"SOLID"
+					"Battery_door"
 				],
 				"from": 82
+			},
+			{
+				"appearance": "Plastic - translucent matte (grey)",
+				"kind": "glass",
+				"roughness": 0.4,
+				"opacity": 0.55,
+				"parts": [
+					"SOLID"
+				],
+				"from": 82,
+				"until": 85
+			},
+			{
+				"appearance": "Plastic - translucent matte (grey)",
+				"kind": "glass",
+				"roughness": 0.4,
+				"opacity": 0.55,
+				"parts": [
+					"Dock_frame"
+				],
+				"from": 86
 			},
 			{
 				"appearance": "(black cover glass)",
