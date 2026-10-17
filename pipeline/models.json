@@ -266,6 +266,81 @@
 					"y_sled (5)",
 					"y_sled (6)"
 				]
+			},
+			{
+				"appearance": "Plastic - translucent matte (grey)",
+				"kind": "glass",
+				"roughness": 0.4,
+				"opacity": 0.55,
+				"parts": [
+					"Frame",
+					"Battery_door",
+					"SOLID"
+				],
+				"from": 82
+			},
+			{
+				"appearance": "(black cover glass)",
+				"kind": "glass",
+				"roughness": 0.0,
+				"parts": [
+					"Display_2in_square (2)"
+				],
+				"from": 82
+			},
+			{
+				"appearance": "Gold - polished",
+				"kind": "metal",
+				"roughness": 0.08,
+				"parts": [
+					"PCB_back (2)",
+					"PCB_back (3)",
+					"PCB_back (4)",
+					"PCB_back (5)",
+					"PCB_back (6)",
+					"PCB_back (7)",
+					"PCB_back (8)",
+					"PCB_back (9)",
+					"PCB_back (10)",
+					"PCB_back (11)",
+					"PCB_back (12)",
+					"PCB_back (13)",
+					"PCB_back (14)",
+					"PCB_back (15)",
+					"PCB_back (16)",
+					"PCB_back (17)"
+				],
+				"from": 82
+			},
+			{
+				"appearance": "Nickel - polished",
+				"kind": "metal",
+				"roughness": 0.08,
+				"parts": [
+					"Magnet_N52_10x1.5",
+					"Magnet_N52_10x1.5_seed",
+					"Magnet_N52_5x1"
+				],
+				"from": 82
+			},
+			{
+				"appearance": "Chrome - black",
+				"kind": "metal",
+				"roughness": 0.0,
+				"parts": [
+					"Screw_M2x6_wafer_black"
+				],
+				"from": 82
+			},
+			{
+				"appearance": "(nickel-plated steel)",
+				"kind": "metal",
+				"roughness": 0.2,
+				"parts": [
+					"AAA_contact_MY-AAA-03",
+					"microSD_HRO_TF-01A"
+				],
+				"from": 82
 			}
 		]
 	},
