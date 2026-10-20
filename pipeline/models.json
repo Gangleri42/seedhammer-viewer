@@ -197,7 +197,8 @@
 				"kind": "metal",
 				"roughness": 0.0,
 				"parts": [
-					"Screw_M2x6_wafer_black"
+					"Screw_M2x6_wafer_black",
+					"Screw_M2x5_wafer_black"
 				]
 			},
 			{
@@ -206,7 +207,8 @@
 				"roughness": 0.2,
 				"parts": [
 					"AAA_contact_MY-AAA-03",
-					"microSD_HRO_TF-01A"
+					"microSD_HRO_TF-01A",
+					"USB-C_HRO_TYPE-C-31-M-12"
 				]
 			}
 		]
@@ -405,7 +407,9 @@
 				"parts": [
 					"Magnet_N52_10x1.5",
 					"Magnet_N52_10x1.5_seed",
-					"Magnet_N52_5x1"
+					"Magnet_N52_5x1",
+					"Magnet_N52_10x10",
+					"Magnet_N52_4x8"
 				],
 				"from": 82
 			},
@@ -414,7 +418,8 @@
 				"kind": "metal",
 				"roughness": 0.0,
 				"parts": [
-					"Screw_M2x6_wafer_black"
+					"Screw_M2x6_wafer_black",
+					"Screw_M2x5_wafer_black"
 				],
 				"from": 82
 			},
@@ -424,7 +429,8 @@
 				"roughness": 0.2,
 				"parts": [
 					"AAA_contact_MY-AAA-03",
-					"microSD_HRO_TF-01A"
+					"microSD_HRO_TF-01A",
+					"USB-C_HRO_TYPE-C-31-M-12"
 				],
 				"from": 82
 			}
