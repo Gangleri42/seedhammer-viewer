@@ -1,13 +1,5 @@
 node_modules
 
-# Output
-.output
-.vercel
-.netlify
-.wrangler
-/.svelte-kit
-/build
-
 # OS
 .DS_Store
 Thumbs.db
@@ -18,29 +10,19 @@ Thumbs.db
 !.env.example
 !.env.test
 
-# Vite
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
-
-# Raw Fusion exports: manifests and mesh dumps carry local paths and document ids.
-# Only sanitized GLB/STEP files under static/models are published.
-/export/out
-/export/__pycache__
-*.pyc
-
 # Editor and local tooling
 .idea
 *.swp
 
-# Built by pipeline/build-all.ts from the hardware repository
-/static/models
+# Conversions and KiCad exports
 /.cache
 
 # Built by pipeline/catalogue.ts (npm run catalogue) from the hardware repository
 /catalogue.json
 /catalogue-files
 
-# Napplet artefact (built by npm run build:napplet)
+# The web page and the napplet, built by stepstr for this site (npm run build, npm run build:napplet)
+/build
 /dist-napplet
 
 # Signer material, never committed

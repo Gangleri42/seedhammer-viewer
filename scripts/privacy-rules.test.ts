@@ -1,7 +1,5 @@
 // Fixtures that would trip the rules are assembled at runtime, so this file passes its own check.
 import { describe, expect, it } from 'vitest';
-import * as nip19 from 'nostr-tools/nip19';
-import { generateSecretKey } from 'nostr-tools/pure';
 import { findPrivate, privateTerms, subjectOnly } from './privacy-rules.mjs';
 
 const rules = (text: string, terms: string[] = []) => findPrivate(text, terms).map((f) => f.rule);
@@ -25,7 +23,7 @@ describe('privacy rules', () => {
 	});
 
 	it('finds Nostr secrets and signer sessions', () => {
-		expect(rules(`key ${nip19.nsecEncode(generateSecretKey())}`)).toEqual(['Nostr secret key']);
+		expect(rules('key nsec1' + 'q'.repeat(58))).toEqual(['Nostr secret key']);
 		expect(rules('ncryptsec1' + 'q'.repeat(40))).toEqual(['Nostr secret key']);
 		expect(rules('nbunksec1' + 'q'.repeat(40))).toEqual(['Nostr signer session']);
 		expect(rules('bunker://' + 'a'.repeat(64) + '?relay=wss://r.example&secret=abc')).toEqual(['Nostr signer session']);
