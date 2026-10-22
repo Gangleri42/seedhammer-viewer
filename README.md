@@ -47,6 +47,13 @@ npm run test:napplet    # stepstr's checks of the napplet: what a shell's sandbo
 the board repository (`UPSTREAM_DIR`, default `../seedhammer-hardware`), and runs KiCad 10's `kicad-cli` (`KICAD_CLI`,
 default the Mac app). Conversions are cached in `.cache/`, so a second run converts only what is new.
 
+## Publishing
+
+The site is published on Nostr as an nsite and a napplet, both signed by the key `.nsite/config.json` names, by
+stepstr's publisher: `STEPSTR_PUBLISHER=1 npm run publish:nostr`. It puts the page, the napplet and every file the
+catalogue names on the site's own Blossom server first and then on each public server in the list that takes files of
+that type. `npm run verify:nostr` checks what is published, with no keys.
+
 ## License
 
 Public domain, see [LICENSE](LICENSE).

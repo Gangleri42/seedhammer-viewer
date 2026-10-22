@@ -13,7 +13,9 @@
 		"catalogue": "tsx pipeline/catalogue.ts",
 		"build": "cd stepstr && STEPSTR_SITE=.. npm run build",
 		"build:napplet": "cd stepstr && STEPSTR_SITE=.. npm run build:napplet",
-		"test:napplet": "cd stepstr && STEPSTR_SITE=.. npx vitest run scripts/napplet-artifact.test.ts"
+		"test:napplet": "cd stepstr && STEPSTR_SITE=.. npx vitest run scripts/napplet-artifact.test.ts",
+		"publish:nostr": "cd stepstr && STEPSTR_SITE=.. npm run publish:nostr --",
+		"verify:nostr": "cd stepstr && STEPSTR_SITE=.. npm run verify:nostr --"
 	},
 	"devDependencies": {
 		"@types/node": "^26.6.3",
