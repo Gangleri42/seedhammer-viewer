@@ -1,33 +1,43 @@
-// Names in a board export, as the viewer shows them. KiCad names each part's occurrence by its reference (C59, U13);
-// the model inside it and the board body carry Open CASCADE's placeholder labels (=>[0:1:1:3]). Placeholders take
-// their model's name, the board body (each piece, for an outline in pieces) becomes PCB, and siblings that share a
-// name (two parts with one reference) get :2, :3, so every part has a path, and an id, of its own.
-import type { Manifest } from '../build-model.ts';
+// Names in a board, as the viewer has always shown them. KiCad names each part's occurrence by its reference (C59,
+// U13); the model inside it and the board body carry Open CASCADE's placeholder labels (=>[0:1:1:3]), which stepstr's
+// converter names after their component, making siblings that share a name unique with :2, :3. Two things are the
+// viewer's own: the board body's occurrence (each piece's, for an outline in pieces) is called PCB, and every part id
+// hashes BOARD_ID_PREFIX in front of the part's path, so a board's ids never meet an enclosure's. Links made before
+// stepstr name board parts by those ids. No part counts as a fastener: KiCad names such as Screw_Terminal would.
+import type { Part } from '../glb.ts';
 import { PCB_NAME } from '../slot.ts';
+import { partId, type MemoryIO } from '../stepstr.ts';
 
-const PLACEHOLDER = /^=>\[[\d:]+\]$/;
+/** Hashed in front of a board part's path: Fusion names hold no NUL, so a board id never equals an enclosure id. */
+export const BOARD_ID_PREFIX = '\0board\0';
 
-export function nameTree(manifest: Manifest): Manifest {
-	const paths = new Map<string, string>();
-	const taken = new Map<string, Map<string, number>>();
-	const occurrences = manifest.occurrences.map((occ) => {
-		const parent = occ.parent === null ? null : paths.get(occ.parent);
-		if (parent === undefined) throw new Error(`${occ.path} comes before its parent`);
-		const base = PCB_NAME.test(occ.component) ? 'PCB' : PLACEHOLDER.test(occ.name) ? occ.component : occ.name;
-		const siblings = taken.get(parent ?? '') ?? new Map<string, number>();
-		taken.set(parent ?? '', siblings);
-		const n = (siblings.get(base) ?? 0) + 1;
-		siblings.set(base, n);
-		const name = n > 1 ? `${base}:${n}` : base;
-		const path = parent === null ? name : `${parent}+${name}`;
-		paths.set(occ.path, path);
-		return { ...occ, name, path, parent };
-	});
-	const bodies = manifest.bodies.map((body) => ({ ...body, occ: body.occ === null ? null : paths.get(body.occ)! }));
-	return { ...manifest, occurrences, bodies };
+type Doc = Awaited<ReturnType<MemoryIO['readBinary']>>;
+type Node = ReturnType<ReturnType<Doc['getRoot']>['listNodes']>[number];
+type Extras = { id: string; name: string; component?: string; body?: boolean; fastener?: boolean };
+
+/**
+ * Renames the board's parts in the converter's document and gives them the board's ids. Each id the converter wrote
+ * is checked against the path it is rebuilt from, so a converter that names paths another way stops the build instead
+ * of renaming parts by guesswork.
+ */
+export function nameBoard(doc: Doc) {
+	const visit = (node: Node, path: string, renamed: string) => {
+		let pcbs = 0;
+		for (const child of node.listChildren()) {
+			const extras = child.getExtras() as Extras;
+			const own = extras.body ? `${path}/${extras.name}` : path ? `${path}+${extras.name}` : extras.name;
+			if (partId(own) !== extras.id) throw new Error(`${extras.name}: its id is not the hash of its path`);
+			const name = !extras.body && PCB_NAME.test(extras.component ?? '') ? (++pcbs > 1 ? `PCB:${pcbs}` : 'PCB') : extras.name;
+			const next = extras.body ? `${renamed}/${name}` : renamed ? `${renamed}+${name}` : name;
+			child.setName(name).setExtras({ ...extras, id: partId(BOARD_ID_PREFIX + next), name, ...(extras.body ? {} : { fastener: false }) });
+			visit(child, own, next);
+		}
+	};
+	// The scene's node is the file's root, named after it; the parts are below.
+	for (const root of doc.getRoot().listScenes().flatMap((scene) => scene.listChildren())) visit(root, '', '');
 }
 
-/** The references the export has a part for: the top-level occurrences, without a :n suffix. */
-export function exportedRefs(manifest: Manifest) {
-	return new Set(manifest.occurrences.filter((o) => o.parent === null && !/^PCB(:\d+)?$/.test(o.name)).map((o) => o.name.replace(/:\d+$/, '')));
+/** The references the board has a part for: the top-level occurrences, without a :n suffix. */
+export function exportedRefs(parts: Part[]) {
+	return new Set(parts.filter((p) => p.parent === null && !p.body && !/^PCB(:\d+)?$/.test(p.name)).map((p) => p.name.replace(/:\d+$/, '')));
 }

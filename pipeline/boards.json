@@ -5,6 +5,7 @@
 		"file": "seed/pcb/seed.kicad_pcb",
 		"since": "2026-09-01",
 		"keep": 20,
+		"slot": { "part": "PCB_back", "align": "centre" },
 		"fixups": {
 			"scale": {
 				"L6": [1, 1, 0.64],

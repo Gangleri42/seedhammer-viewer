@@ -1,11 +1,11 @@
 // One board revision exported to STEP, cached in .cache/boards by everything that shapes the file: this code, the
-// KiCad version, the fixups and the revision's 3D inputs. The pipeline hash is not among them, so a converter change
+// KiCad version, the fixups and the revision's 3D inputs. The conversion id is not among them, so a converter change
 // reuses the STEP files without running KiCad again.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { sha256 } from '../manifest.ts';
+import { sha256 } from '../conversions.ts';
 import { assertPublic } from '../privacy.ts';
 import { modelledRefs, prepare, useNearest, type Fixups } from './board.ts';
 import { exportStep, normaliseHeader } from './step.ts';

@@ -2,72 +2,97 @@
 // KiCad's page frame: the board came in as a kicad-cli export with the default origin. An upstream export made the
 // same way fits the slot as it is. Registration checks that on the board body: its outline box must overlap and its
 // exact bottom face must lie where the upstream one does, else the board needs a shift (one moved inside its link) or
-// does not fit at all (an export with another origin).
-import { readFileSync } from 'node:fs';
-import type { Body, Manifest, Occurrence } from './build-model.ts';
-import type { RawMeasure } from './measure.ts';
+// does not fit at all (an export with another origin). Both sides are stepstr conversions: the tree and placements from
+// the GLB (glb.ts), the shape from the measurement data.
+//
+// A model whose PCB is modelled in CAD itself has no KiCad board body. boards.json can name that part instead (`slot`):
+// the board is then centred on it (centre), as long as the two outlines are the same size.
+import { invertRigid, multiply, type Mat, type Part } from './glb.ts';
+import type { MeasureData, SolidRecord } from './stepstr.ts';
 
 /** The board body in some frame: outline box [x0, y0, x1, y1] and the z of its bottom and top faces, mm. */
 export type PcbFacts = { box: [number, number, number, number]; bottom: number; top: number };
 
-type Mat = number[]; // row-major 4×4, as the manifest stores it
-
 /** KiCad names the board body <board>_PCB, or <board>_PCB_1, _2... when the outline has separate pieces. */
 export const PCB_NAME = /_PCB(?:_\d+)?$/;
-const isPcb = (body: Body) => PCB_NAME.test(body.body);
+
+/** A part modelled in CAD that a board takes the place of, by its component name (boards.json). */
+export type PartSlot = { part: string; align: 'centre' };
+
+/** How much the board's outline may differ from the part's in width or in depth for it to take the part's place, mm. */
+const SIZE_TOLERANCE = 0.5;
+
+/** Arcs are traced at this step for the outline box, radians: a 2 mm corner then strays under 0.1 µm. */
+const ARC_STEP = Math.PI / 1800;
+
+export const boardBodies = (parts: Part[]) => parts.filter((part) => part.body && PCB_NAME.test(part.name));
 
 /** The slot and its board bodies, when every board body sits in one sub-assembly. */
-export function findSlot(manifest: Manifest): { slot: Occurrence; pcbs: Body[] } | null {
-	const pcbs = manifest.bodies.filter(isPcb);
-	if (!pcbs.length || pcbs.some((b) => b.occ === null)) return null;
-	const byPath = new Map(manifest.occurrences.map((o) => [o.path, o]));
+export function findSlot(parts: Part[]): { slot: Part; pcbs: Part[] } | null {
+	const pcbs = boardBodies(parts);
+	if (!pcbs.length || pcbs.some((b) => b.parent === null)) return null;
 	// KiCad's board body is an occurrence of its own inside the board component.
 	const slots = new Set(pcbs.map((b) => {
-		const holder = byPath.get(b.occ!)!;
-		return PCB_NAME.test(holder.component) && holder.parent ? holder.parent : holder.path;
+		const holder = b.parent!;
+		return PCB_NAME.test(holder.component ?? '') && holder.parent ? holder.parent : holder;
 	}));
-	return slots.size === 1 ? { slot: byPath.get([...slots][0])!, pcbs } : null;
+	return slots.size === 1 ? { slot: [...slots][0], pcbs } : null;
 }
 
-export function boardBodies(manifest: Manifest): Body[] {
-	return manifest.bodies.filter(isPcb);
+/** The one occurrence of `component` and the bodies below it, or null when the model has none or several. */
+export function findPart(parts: Part[], component: string): { slot: Part; bodies: Part[] } | null {
+	const found = parts.filter((p) => !p.body && p.component === component);
+	if (found.length !== 1) return null;
+	const below = (p: Part) => {
+		for (let at = p.parent; at; at = at.parent) if (at === found[0]) return true;
+		return false;
+	};
+	const bodies = parts.filter((p) => p.body && below(p));
+	return bodies.length ? { slot: found[0], bodies } : null;
 }
 
-function invertRigid(m: Mat): Mat {
-	const r = [m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]];
-	const t = [0, 1, 2].map((i) => -(r[i * 3] * m[3] + r[i * 3 + 1] * m[7] + r[i * 3 + 2] * m[11]));
-	return [r[0], r[1], r[2], t[0], r[3], r[4], r[5], t[1], r[6], r[7], r[8], t[2], 0, 0, 0, 1];
-}
-
-function multiply(a: Mat, b: Mat): Mat {
-	const out = new Array(16).fill(0);
-	for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) for (let k = 0; k < 4; k++) out[r * 4 + c] += a[r * 4 + k] * b[k * 4 + c];
-	return out;
-}
-
-/** The board bodies' facts together, in the frame of `frame` (an occurrence's world matrix) or the export's own. */
-export function pcbFacts(dir: string, manifest: Manifest, pcbs: Body[], frame: Mat | null): PcbFacts {
-	const all = pcbs.map((pcb) => bodyFacts(dir, manifest, pcb, frame));
-	return {
+/** The board bodies' facts together, in the frame of `frame` (an occurrence's placement) or the model's own. */
+export function pcbFacts(measure: MeasureData, pcbs: Part[], frame: Mat | null): PcbFacts {
+	const all = pcbs.map((pcb) => bodyFacts(measure, pcb, frame));
+	const facts: PcbFacts = {
 		box: [Math.min(...all.map((f) => f.box[0])), Math.min(...all.map((f) => f.box[1])), Math.max(...all.map((f) => f.box[2])), Math.max(...all.map((f) => f.box[3]))],
 		bottom: Math.min(...all.map((f) => f.bottom)),
 		top: Math.max(...all.map((f) => f.top))
 	};
+	// A part's pieces (pads, a stiffener) need not all be flat; together they must have a bottom and a top.
+	if (!Number.isFinite(facts.bottom) || !Number.isFinite(facts.top)) throw new Error(`${pcbs[0].name}: no flat top and bottom faces`);
+	return facts;
 }
 
-function bodyFacts(dir: string, manifest: Manifest, pcb: Body, frame: Mat | null): PcbFacts {
-	const holder = manifest.occurrences.find((o) => o.path === pcb.occ);
-	const world = holder?.matrix ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-	const m = frame ? multiply(invertRigid(frame), world) : world;
-	const at = (x: number, y: number, z: number, row: number) => m[row * 4] * x + m[row * 4 + 1] * y + m[row * 4 + 2] * z + m[row * 4 + 3];
+/** The points an outline box reaches: vertices, arcs traced along, and the polylines of other curves. */
+function outlinePoints(solid: SolidRecord): number[][] {
+	const points: number[][] = [];
+	for (let i = 0; i < solid.p.length; i += 3) points.push(solid.p.slice(i, i + 3));
+	for (const edge of solid.e) {
+		if (edge?.[0] === 1) {
+			const [, , , cx, cy, cz, nx, ny, nz, rx, ry, rz, radius, sweep] = edge;
+			const side = [ny * rz - nz * ry, nz * rx - nx * rz, nx * ry - ny * rx];
+			for (let a = 0; a < sweep; a += ARC_STEP) {
+				const c = radius * Math.cos(a), s = radius * Math.sin(a);
+				points.push([cx + c * rx + s * side[0], cy + c * ry + s * side[1], cz + c * rz + s * side[2]]);
+			}
+		} else if (edge?.[0] === 2) {
+			for (let i = 0; i < edge[7].length; i += 3) points.push(edge[7].slice(i, i + 3));
+		}
+	}
+	return points;
+}
 
-	const bin = readFileSync(`${dir}/m_${String(pcb.mesh).padStart(3, '0')}.bin`);
-	const nodes = bin.readUInt32LE(0);
-	const positions = new Float32Array(bin.buffer.slice(bin.byteOffset + 8, bin.byteOffset + 8 + nodes * 12));
+function bodyFacts(measure: MeasureData, pcb: Part, frame: Mat | null): PcbFacts {
+	// A body's solid is in the frame of its occurrence, the body's parent.
+	const world = pcb.parent!.world;
+	const m = frame ? multiply(invertRigid(frame), world) : world;
+	const solid = pcb.solid === undefined ? null : measure.solids[pcb.solid];
+	if (!solid) throw new Error(`${pcb.name}: no exact geometry`);
+
 	const box: PcbFacts['box'] = [Infinity, Infinity, -Infinity, -Infinity];
-	for (let i = 0; i < nodes; i++) {
-		const [x, y, z] = [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]];
-		const px = at(x, y, z, 0), py = at(x, y, z, 1);
+	for (const [x, y, z] of outlinePoints(solid)) {
+		const px = m[0] * x + m[4] * y + m[8] * z + m[12], py = m[1] * x + m[5] * y + m[9] * z + m[13];
 		box[0] = Math.min(box[0], px);
 		box[1] = Math.min(box[1], py);
 		box[2] = Math.max(box[2], px);
@@ -75,17 +100,15 @@ function bodyFacts(dir: string, manifest: Manifest, pcb: Body, frame: Mat | null
 	}
 
 	// Plane records are [0, area, loops, nx, ny, nz, d] with n·p = d, in the solid's own frame.
-	const measure: RawMeasure = JSON.parse(readFileSync(`${dir}/measure.json`, 'utf8'));
 	let bottom = Infinity, top = -Infinity;
-	for (const face of measure.solids[pcb.mesh].f) {
+	for (const face of solid.f) {
 		if (face[0] !== 0) continue;
 		const [nx, ny, nz, d] = face.slice(3) as number[];
-		const n = [0, 1, 2].map((row) => m[row * 4] * nx + m[row * 4 + 1] * ny + m[row * 4 + 2] * nz);
-		const offset = d + n[0] * m[3] + n[1] * m[7] + n[2] * m[11];
+		const n = [0, 1, 2].map((row) => m[row] * nx + m[4 + row] * ny + m[8 + row] * nz);
+		const offset = d + n[0] * m[12] + n[1] * m[13] + n[2] * m[14];
 		if (n[2] < -0.999) bottom = Math.min(bottom, -offset);
 		if (n[2] > 0.999) top = Math.max(top, offset);
 	}
-	if (!Number.isFinite(bottom) || !Number.isFinite(top)) throw new Error(`${pcb.body}: no flat top and bottom faces`);
 	const round = (v: number) => Number(v.toFixed(4));
 	return { box: box.map(round) as PcbFacts['box'], bottom: round(bottom), top: round(top) };
 }
@@ -103,4 +126,19 @@ export function register(cad: PcbFacts, board: PcbFacts): { fix?: [number, numbe
 	if (!(overlap > 0.5 * larger)) return null;
 	const dz = Number((cad.bottom - board.bottom).toFixed(4));
 	return Math.abs(dz) < 0.001 ? {} : { fix: [0, 0, dz] };
+}
+
+/**
+ * How a board takes the place of a part modelled in CAD: shifted so that the centre of its outline box is the centre
+ * of the part's and its bottom face lies on the part's, both in the part's frame. Null when the outlines differ in
+ * width or depth by more than SIZE_TOLERANCE; a board is never turned to fit.
+ */
+export function centre(part: PcbFacts, board: PcbFacts): { fix?: [number, number, number] } | null {
+	const size = (f: PcbFacts) => [f.box[2] - f.box[0], f.box[3] - f.box[1]];
+	const [pw, pd] = size(part), [bw, bd] = size(board);
+	if (Math.abs(pw - bw) > SIZE_TOLERANCE || Math.abs(pd - bd) > SIZE_TOLERANCE) return null;
+	const middle = (f: PcbFacts, axis: 0 | 1) => (f.box[axis] + f.box[axis + 2]) / 2;
+	const shift = [middle(part, 0) - middle(board, 0), middle(part, 1) - middle(board, 1), part.bottom - board.bottom];
+	const fix = shift.map((v) => Number(v.toFixed(4)) || 0) as [number, number, number];
+	return fix.every((v) => Math.abs(v) < 0.001) ? {} : { fix };
 }
