@@ -44,6 +44,13 @@ export function privateTerms(env = process.env) {
 }
 
 /**
+ * Whether a commit message is its subject line alone, blank lines at either end aside. A body is where working notes
+ * and assistant trailers get in, so new commits carry none.
+ * @param {string} message
+ */
+export const subjectOnly = (message) => !message.trim().includes('\n');
+
+/**
  * Every finding in the text, by rule name and line. Never returns the matched text: the reports end up in public CI
  * logs, and the match may be the very secret.
  * @param {string} text

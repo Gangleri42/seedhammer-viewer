@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import * as nip19 from 'nostr-tools/nip19';
 import { generateSecretKey } from 'nostr-tools/pure';
-import { findPrivate, privateTerms } from './privacy-rules.mjs';
+import { findPrivate, privateTerms, subjectOnly } from './privacy-rules.mjs';
 
 const rules = (text: string, terms: string[] = []) => findPrivate(text, terms).map((f) => f.rule);
 const at = '@';
@@ -54,5 +54,12 @@ describe('privacy rules', () => {
 	it('reads private terms from the environment, skipping comments and blanks', () => {
 		expect(privateTerms({ PRIVATE_TERMS: 'Alpha\n# a comment\n\n beta \n' })).toEqual(['alpha', 'beta']);
 		expect(privateTerms({ PRIVATE_TERMS_FILE: '/nonexistent/private-terms' })).toEqual([]);
+	});
+
+	it('takes a commit message that is a subject line alone', () => {
+		expect(subjectOnly('Fix a thing')).toBe(true);
+		expect(subjectOnly('Fix a thing\n\n\n')).toBe(true);
+		expect(subjectOnly('Fix a thing\n\nBecause it was broken.\n')).toBe(false);
+		expect(subjectOnly('Fix a thing\nSigned-off-by: grumpyeng <grumpyeng@seedhammer.com>')).toBe(false);
 	});
 });
