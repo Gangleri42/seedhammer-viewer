@@ -1,11 +1,40 @@
 {
 	"id": "sh-viewer",
-	"title": "SeedHammer viewer",
+	"title": "SeedHammer 3D viewer",
 	"description": "3D viewer for the Seed controller and the Hammer and II engraving machines: section cuts, part visibility, exploded views and STEP download.",
+	"url": "https://viewer.seedhammer.space",
 	"source": "nostr://npub1zj0q0eseamwn9er4drf3jl3kufc0fddsfrr0v54l2mlfqenah7ysxuy9th/relay.ngit.dev/seedhammer-viewer",
 	"pubkey": "149e07e619eedd32e47568d3197e36e270f4b5b048c6f652bf56fe90667dbf89",
 	"relays": ["wss://relay.unrug.tech", "wss://relay2.unrug.tech", "wss://nsite.run", "wss://relay.damus.io", "wss://relay.primal.net", "wss://nos.lol"],
 	"archiveRelays": ["wss://archive.unrug.tech"],
-	"servers": ["https://bls.unrug.tech", "https://blssm.us", "https://blossom.ditto.pub", "https://nsite.run", "https://nostr.download", "https://blossom.primal.net", "https://cdn.hzrd149.com"],
-	"gatewayHostnames": ["nsite.lol"]
+	"servers": [
+		"https://bls.unrug.tech",
+		"https://blossom.primal.net",
+		"https://blossom.band",
+		"https://nostr.download",
+		"https://cdn.hzrd149.com",
+		"https://blossom.ditto.pub",
+		"https://blossom.yakihonne.com",
+		"https://blossom.data.haus",
+		"https://blossom-01.uid.ovh",
+		"https://blossom-02.uid.ovh",
+		"https://files.sovbit.host",
+		"https://blossom.nmail.li",
+		"https://blossom.dreamith.to",
+		"https://blssm.us",
+		"https://blossom.nostr.black",
+		"https://cdn.klepak.net",
+		"https://nsite.run",
+		"https://blossom.nostr.build",
+		"https://24242.io",
+		"https://nostr.media",
+		"https://media.libernet.app",
+		"https://blossom.jumble.social"
+	],
+	"gatewayHostnames": ["nsite.lol"],
+	"napplet": {
+		"archetype": "cad-viewer",
+		"topics": ["napplet:cad-viewer/open", "cad-viewer:open"],
+		"params": ["route", "model", "version"]
+	}
 }
