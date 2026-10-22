@@ -6,7 +6,7 @@ views, measuring and STEP download. Every view is a shareable link.
 - Web: <https://viewer.seedhammer.space>
 - Napplet (Nostr): `naddr1qvzqqqyf8ypzq9y7qlnpnmkaxtj826xnr9lrdcns7j6mqjxx7eft74h7jpn8m0ufqyt8wumn8ghj7un9d3shjtn4dee82eeww3jkx6qqp9eksttkd9jhwetjm3azc8`
 - Models: [Gangleri42/sh-hardware](https://github.com/Gangleri42/sh-hardware)
-- Boards: [seedhammer/hardware](https://github.com/seedhammer/hardware), the KiCad sources, fitted into each model
+- Boards: [seedhammer/hardware](https://github.com/seedhammer/hardware), the KiCad sources, shown in the models they fit
 
 The viewer is [stepstr](https://github.com/Gangleri42/stepstr), a STEP viewer for the browser and for Nostr, built
 for this site with its models. This repository holds what makes it the SeedHammer viewer: the site's settings
@@ -53,6 +53,9 @@ The site is published on Nostr as an nsite and a napplet, both signed by the key
 stepstr's publisher: `STEPSTR_PUBLISHER=1 npm run publish:nostr`. It puts the page, the napplet and every file the
 catalogue names on the site's own Blossom server first and then on each public server in the list that takes files of
 that type. `npm run verify:nostr` checks what is published, with no keys.
+
+The web address is GitHub Pages serving the signed nsite byte for byte: `.github/workflows/pages.yml` builds nothing,
+it fetches the files the site manifest lists, checks each sha256 and deploys them.
 
 ## License
 
