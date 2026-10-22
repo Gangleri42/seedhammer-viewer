@@ -30,6 +30,7 @@ export type BoardConfig = {
 	since?: string;
 	/** How many revisions the catalogue lists, newest first. */
 	keep?: number;
+	/** The board's finishes, for every revision alike. */
 	materials?: Finish[];
 	fixups?: Fixups;
 	/** For a model whose PCB is a part modelled in CAD: that part, which the board is centred on (slot.ts). */
@@ -170,6 +171,7 @@ async function convertRevision(candidate: Candidate, exported: Exported, config:
 	const notes = revisionNotes(exported.notes, exported.modelled.filter((ref) => !refs.has(ref)));
 
 	const zipped = readFileSync(zip);
+	const finishes = config.materials ?? [];
 	return {
 		revision: {
 			id: candidate.id,
@@ -178,6 +180,7 @@ async function convertRevision(candidate: Candidate, exported: Exported, config:
 			subject: publicSubject(candidate.subject),
 			step: ctx.place(zip, { sha256: sha256(zipped), size: zipped.length }),
 			files: { glb: ctx.place(made.glb, made.summary.glb), measure: ctx.place(made.measure, made.summary.measure) },
+			...(finishes.length ? { finishes } : {}),
 			...(notes.length ? { notes } : {})
 		},
 		facts: pcbFacts(measure, pcbs, null)

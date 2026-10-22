@@ -4,8 +4,9 @@
 //
 // A version is a commit that changed the model's STEP file (versions.ts), named by the commit's short hash. Its STEP
 // file stays on GitHub at that commit; the catalogue names it there by URL, size and sha256. Each STEP file is
-// converted once (conversions.ts). Models listed in boards.json also get their upstream board track as a companion
-// (boards.ts), and each version learns where that board goes (slot.ts).
+// converted once (conversions.ts), and its finishes are the rules of models.json in force for it (finishes.ts).
+// Models listed in boards.json also get their upstream board track as a companion (boards.ts), and each version
+// learns where that board goes (slot.ts).
 //
 //   HARDWARE_DIR    full clone of the hardware repository (default ../sh-hardware)
 //   UPSTREAM_DIR    full clone of the board repository (default ../seedhammer-hardware)
@@ -20,6 +21,7 @@ import { gunzipSync } from 'node:zlib';
 import { buildBoard, type BoardConfig, type Kicad } from './boards.ts';
 import boardConfigs from './boards.json' with { type: 'json' };
 import { converted, conversionId, pruneConversions, type Conversion } from './conversions.ts';
+import { followHistory, resolveFinishes, type ModelConfig } from './finishes.ts';
 import { gltfJson, partsOf } from './glb.ts';
 import { used as usedExports } from './kicad/export.ts';
 import { kicadCommand, kicadVersion, libraryDir } from './kicad/step.ts';
@@ -38,7 +40,6 @@ const FILES = 'catalogue-files';
 const FASTEST = 'https://blossom.primal.net';
 const HOME = 'hammer';
 
-type ModelConfig = { title: string; folder: string };
 /**
  * Where a version's board goes: the slot's part id, and the CAD board in the slot's frame. `centred` for a part modelled
  * in CAD that the board is centred on (slot.ts centre); otherwise the board registers on KiCad's frame (register).
@@ -107,8 +108,13 @@ let boardsWalked = !!kicad;
 for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 	const versions: CatalogueVersion[] = [];
 	const slots: (Slot | null)[] = [];
-	for (const source of listVersions(HARDWARE, config.folder)) {
+	const sources = listVersions(HARDWARE, config.folder);
+	const history = [...sources].reverse();
+	const rules = followHistory(config.materials, config.commits, history);
+	const ids = history.map((version) => version.id);
+	for (const source of sources) {
 		const made = await converted(hardware('cat-file', 'blob', source.blob), posix.basename(source.path), conversion);
+		const finishes = resolveFinishes(rules, source.id, ids);
 		const url = `https://raw.githubusercontent.com/${HARDWARE_REPO}/${source.commit}/${source.path.split('/').map(encodeURIComponent).join('/')}`;
 		versions.push({
 			id: source.id,
@@ -116,7 +122,8 @@ for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 			date: source.date,
 			subject: publicSubject(source.subject),
 			step: { ...made.summary.step, url },
-			files: filesOf(made)
+			files: filesOf(made),
+			...(finishes.length ? { finishes } : {})
 		});
 		console.log(`${key} ${source.id} (${source.path}): ${made.cached ? 'cached' : `converted in ${made.seconds.toFixed(1)} s`}, ` +
 			`${made.summary.solids} solids, ${made.summary.triangles.toLocaleString('en')} triangles, GLB ${mb(made.summary.glb.size)}, measure ${mb(made.summary.measure.size)}`);

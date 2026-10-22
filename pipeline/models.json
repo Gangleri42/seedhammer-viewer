@@ -43,7 +43,14 @@
 				"parts": [
 					"Skeleton"
 				],
-				"until": 21
+				"versions": [
+					{
+						"until": "86e15e8"
+					},
+					{
+						"from": "e6f4bdc"
+					}
+				]
 			},
 			{
 				"appearance": "Polykarbonat (klar)",
@@ -53,8 +60,12 @@
 				"parts": [
 					"Skeleton"
 				],
-				"from": 22,
-				"until": 24
+				"versions": [
+					{
+						"from": "48c1424",
+						"until": "48c1424"
+					}
+				]
 			},
 			{
 				"appearance": "Aluminium - satiniert",
@@ -64,7 +75,12 @@
 					"Frame_alu",
 					"Skeleton (1)"
 				],
-				"from": 25
+				"versions": [
+					{
+						"from": "5b29ec7",
+						"until": "ec4f1a7"
+					}
+				]
 			},
 			{
 				"appearance": "Polykarbonat (klar)",
@@ -74,8 +90,12 @@
 				"parts": [
 					"Skeleton (2)"
 				],
-				"from": 25,
-				"until": 37
+				"versions": [
+					{
+						"from": "5b29ec7",
+						"until": "5678da4"
+					}
+				]
 			},
 			{
 				"appearance": "Glas (klar)",
@@ -85,8 +105,12 @@
 				"parts": [
 					"Glass_lid"
 				],
-				"from": 38,
-				"until": 41
+				"versions": [
+					{
+						"from": "9a0b3ae",
+						"until": "36ee178"
+					}
+				]
 			},
 			{
 				"appearance": "Glas (klar)",
@@ -96,7 +120,12 @@
 				"parts": [
 					"Glass_lid (1)"
 				],
-				"from": 42
+				"versions": [
+					{
+						"from": "ec4f1a7",
+						"until": "ec4f1a7"
+					}
+				]
 			},
 			{
 				"appearance": "Edelstahl - poliert",
@@ -105,7 +134,12 @@
 				"parts": [
 					"M1p6x4_wafer_T5_A2_ISO7092 (1)"
 				],
-				"from": 38
+				"versions": [
+					{
+						"from": "9a0b3ae",
+						"until": "ec4f1a7"
+					}
+				]
 			},
 			{
 				"appearance": "(black steel screw)",
@@ -114,7 +148,12 @@
 				"parts": [
 					"Screw_M1p6x5p5_JC_A6B16164505"
 				],
-				"from": 42
+				"versions": [
+					{
+						"from": "ec4f1a7",
+						"until": "ec4f1a7"
+					}
+				]
 			},
 			{
 				"appearance": "(stainless sleeve tube)",
@@ -123,7 +162,12 @@
 				"parts": [
 					"Sleeve_tube_M1p6"
 				],
-				"from": 42
+				"versions": [
+					{
+						"from": "ec4f1a7",
+						"until": "ec4f1a7"
+					}
+				]
 			},
 			{
 				"appearance": "Glas (klar)",
@@ -210,7 +254,33 @@
 					"USB-C_HRO_TYPE-C-31-M-12"
 				]
 			}
-		]
+		],
+		"commits": {
+			"86e15e8": {
+				"blob": "86e1807ffa1c9dc49769ab51e9c7019ce47e799d"
+			},
+			"48c1424": {
+				"blob": "96cf3757b4fd2be7d398162c69428e1ddd4a43d5"
+			},
+			"5b29ec7": {
+				"blob": "2186ec2e257cdc861fcc6299560d4a357de57ddb"
+			},
+			"5678da4": {
+				"blob": "a572c97fe699f2e9d5a17c7bb805df0d37319474"
+			},
+			"9a0b3ae": {
+				"blob": "66defc275242720a6a8fb94b2c50d600580929ba"
+			},
+			"36ee178": {
+				"blob": "9fefa3247d4896313d133600a578499fc62c9d19"
+			},
+			"ec4f1a7": {
+				"blob": "c9758bf7491a440dbc52f4c8e4212ca452b4efe2"
+			},
+			"e6f4bdc": {
+				"blob": "3c82486ddb04f141a2c4e91c47b1efbffe5e98cb"
+			}
+		}
 	},
 	"hammer": {
 		"title": "Hammer",
@@ -338,7 +408,11 @@
 					"Frame",
 					"Battery_door"
 				],
-				"from": 82
+				"versions": [
+					{
+						"from": "b221d84"
+					}
+				]
 			},
 			{
 				"appearance": "Plastic - translucent matte (grey)",
@@ -348,8 +422,12 @@
 				"parts": [
 					"SOLID"
 				],
-				"from": 82,
-				"until": 85
+				"versions": [
+					{
+						"from": "b221d84",
+						"until": "928c7f1"
+					}
+				]
 			},
 			{
 				"appearance": "Plastic - translucent matte (grey)",
@@ -359,7 +437,11 @@
 				"parts": [
 					"Dock_frame"
 				],
-				"from": 86
+				"versions": [
+					{
+						"from": "3676e2f"
+					}
+				]
 			},
 			{
 				"appearance": "(black cover glass)",
@@ -368,7 +450,11 @@
 				"parts": [
 					"Display_2in_square (2)"
 				],
-				"from": 82
+				"versions": [
+					{
+						"from": "b221d84"
+					}
+				]
 			},
 			{
 				"appearance": "Gold - polished",
@@ -392,7 +478,11 @@
 					"PCB_back (16)",
 					"PCB_back (17)"
 				],
-				"from": 82
+				"versions": [
+					{
+						"from": "b221d84"
+					}
+				]
 			},
 			{
 				"appearance": "Nickel - polished",
@@ -405,7 +495,11 @@
 					"Magnet_N52_10x10",
 					"Magnet_N52_4x8"
 				],
-				"from": 82
+				"versions": [
+					{
+						"from": "b221d84"
+					}
+				]
 			},
 			{
 				"appearance": "Chrome - black",
@@ -415,7 +509,11 @@
 					"Screw_M2x6_wafer_black",
 					"Screw_M2x5_wafer_black"
 				],
-				"from": 82
+				"versions": [
+					{
+						"from": "b221d84"
+					}
+				]
 			},
 			{
 				"appearance": "(nickel-plated steel)",
@@ -426,9 +524,24 @@
 					"microSD_HRO_TF-01A",
 					"USB-C_HRO_TYPE-C-31-M-12"
 				],
-				"from": 82
+				"versions": [
+					{
+						"from": "b221d84"
+					}
+				]
 			}
-		]
+		],
+		"commits": {
+			"b221d84": {
+				"blob": "c568f482057bc10fe3c0ca0381ac23b13f9ae5a1"
+			},
+			"928c7f1": {
+				"blob": "b209ee80d3ac337029e59861bec83856e64e7c30"
+			},
+			"3676e2f": {
+				"blob": "073a9431833dfbc6dd77f1611067adce8d9803c2"
+			}
+		}
 	},
 	"ii": {
 		"title": "II",
