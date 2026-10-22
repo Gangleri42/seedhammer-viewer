@@ -10,7 +10,6 @@
 	"servers": [
 		"https://bls.unrug.tech",
 		"https://blossom.primal.net",
-		"https://blossom.band",
 		"https://nostr.download",
 		"https://cdn.hzrd149.com",
 		"https://blossom.ditto.pub",
@@ -25,11 +24,12 @@
 		"https://blossom.nostr.black",
 		"https://cdn.klepak.net",
 		"https://nsite.run",
+		"https://media.libernet.app",
+		"https://blossom.jumble.social",
+		"https://blossom.band",
 		"https://blossom.nostr.build",
 		"https://24242.io",
-		"https://nostr.media",
-		"https://media.libernet.app",
-		"https://blossom.jumble.social"
+		"https://nostr.media"
 	],
 	"gatewayHostnames": ["nsite.lol"],
 	"napplet": {
