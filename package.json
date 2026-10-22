@@ -12,6 +12,7 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run",
 		"models": "tsx pipeline/build-all.ts",
+		"catalogue": "tsx pipeline/catalogue.ts",
 		"build:napplet": "vite build --config vite.napplet.config.ts",
 		"dev:napplet": "vite --config vite.napplet.config.ts --host 127.0.0.1 --port 5174",
 		"preview:napplet": "vite preview --config vite.napplet.config.ts --host 127.0.0.1 --port 4174",

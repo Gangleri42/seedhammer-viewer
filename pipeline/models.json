@@ -2,7 +2,6 @@
 	"seed": {
 		"title": "Seed",
 		"folder": "seed",
-		"simplifyError": 0.01,
 		"materials": [
 			{
 				"appearance": "Stahl - satiniert",
@@ -216,11 +215,6 @@
 	"hammer": {
 		"title": "Hammer",
 		"folder": "hammer",
-		"simplifyError": 0.02,
-		"simplifyErrorByComponent": {
-			"hammer_coil": 0.1,
-			"plunger_spring": 0.05
-		},
 		"materials": [
 			{
 				"appearance": "Stahl - satiniert",
@@ -439,10 +433,6 @@
 	"ii": {
 		"title": "II",
 		"folder": "II",
-		"simplifyError": 0.02,
-		"simplifyErrorByComponent": {
-			"jaw_spring": 0.05
-		},
 		"materials": [
 			{
 				"appearance": "Stahl - satiniert",
@@ -541,7 +531,6 @@
 					"iso4762_m4x16"
 				]
 			}
-		],
-		"napplet": false
+		]
 	}
 }

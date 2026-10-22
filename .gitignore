@@ -36,6 +36,10 @@ vite.config.ts.timestamp-*
 /static/models
 /.cache
 
+# Built by pipeline/catalogue.ts (npm run catalogue) from the hardware repository
+/catalogue.json
+/catalogue-files
+
 # Napplet artefact (built by npm run build:napplet)
 /dist-napplet
 
