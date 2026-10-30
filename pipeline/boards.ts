@@ -17,7 +17,7 @@ import { libraryRefs, shapeText, type Fixups } from './kicad/board.ts';
 import { exportRevision, type Exported, type Kicad } from './kicad/export.ts';
 import { exportedRefs, nameBoard } from './kicad/tree.ts';
 import { assertPublic, publicSubject } from './privacy.ts';
-import { boardBodies, pcbFacts, type PartSlot, type PcbFacts } from './slot.ts';
+import { boardBodies, pcbFacts, sameFrame, type PartSlot, type PcbFacts } from './slot.ts';
 import { MemoryIO, zipSync, type Blob, type CompanionRevision, type CompanionTrack, type Finish, type MeasureData } from './stepstr.ts';
 
 export type { Kicad };
@@ -225,14 +225,25 @@ export async function buildBoard(key: string, config: BoardConfig, ctx: BoardCon
 			skip(candidate, err);
 		}
 	}
-	const revisions = built.map((b) => b.revision);
+	// Each version's slot is fitted to the newest board (catalogue.ts), and the viewer puts whichever revision is chosen
+	// there with that fit: a revision drawn elsewhere on the page, or in another shape, would show out of place.
+	const kept = built.filter((b, i) => i === 0 || sameFrame(built[0].facts, b.facts, !!config.slot));
+	const left = built.length - kept.length;
+	if (left) console.log(`${key} board: ${left} older revision(s) left out, drawn elsewhere on the page or in another shape`);
+	const revisions = kept.map((b) => b.revision);
 	for (const note of revisions[0]?.notes ?? []) console.log(`${key} board ${revisions[0].id}: ${note}`);
+	const notes = [
+		...(failed ? [clip(failed)] : []),
+		...(left ? [left === 1
+			? 'One older revision is not listed: it is drawn elsewhere on the KiCad page than the newest, or in another shape, so it would not sit in its place.'
+			: `${left} older revisions are not listed: they are drawn elsewhere on the KiCad page than the newest, or in another shape, so they would not sit in its place.`] : [])
+	];
 	const track: CompanionTrack = {
 		label: 'Board',
 		source: `${config.repo} ${config.ref}`,
 		latest: revisions[0]?.id ?? null,
 		revisions,
-		...(failed ? { notes: [clip(failed)] } : {})
+		...(notes.length ? { notes } : {})
 	};
 	return { track, facts: built[0]?.facts ?? null };
 }

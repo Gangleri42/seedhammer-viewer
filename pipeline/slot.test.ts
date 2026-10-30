@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { gltfJson, partsOf, type Mat, type Part } from './glb.ts';
-import { boardBodies, centre, findPart, findSlot, pcbFacts, register, type PcbFacts } from './slot.ts';
+import { boardBodies, centre, findPart, findSlot, pcbFacts, register, sameFrame, type PcbFacts } from './slot.ts';
 import type { Blob, Catalogue, MeasureData, SolidRecord } from './stepstr.ts';
 
 const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -72,6 +72,42 @@ describe('registration', () => {
 		// Hammer 16ccf13: a portrait board in the same frame, less than half of it over the landscape upstream one.
 		const landscape: PcbFacts = { box: [63, -126, 185, -73], bottom: 0, top: 1.5162 };
 		expect(register({ box: [75.15, -126, 138.15, 13], bottom: 0, top: 1.5162 }, landscape)).toBeNull();
+	});
+
+	// The upstream muscle board of 934149a: 67 x 146 mm, page y 32..178.
+	const portrait: PcbFacts = { box: [66, -178, 133, -32], bottom: 0, top: 1.6 };
+
+	it('fits a board narrowed in place', () => {
+		// Hammer 1a008cb's board is 67 wide like it; one 78 wide at the same place (868ad38's) still covers it.
+		expect(register(portrait, portrait)).toEqual({});
+		expect(register({ ...portrait, box: [63, -178, 141, -32] }, portrait)).toEqual({});
+	});
+
+	it('refuses a CAD board drawn further along the page, though half of it overlaps', () => {
+		// Hammer 119c2ba: its board 52 mm further up the page, 55 % of the larger box over the upstream one.
+		expect(register({ box: [67.15, -126, 124.15, 20], bottom: 0, top: 1.6 }, portrait)).toBeNull();
+	});
+});
+
+describe('revisions in the newest board’s frame', () => {
+	const newest: PcbFacts = { box: [66, -178, 133, -32], bottom: 0, top: 1.6 };
+
+	it('keeps a revision drawn at the same place, narrower or wider', () => {
+		expect(sameFrame(newest, newest, false)).toBe(true);
+		expect(sameFrame(newest, { ...newest, box: [63, -178, 141, -32] }, false)).toBe(true);
+	});
+
+	it('leaves out one drawn elsewhere on the page or in another shape', () => {
+		// 934149a's track: a258d15 39 mm along the page, the landscape boards before it.
+		expect(sameFrame(newest, { ...newest, box: [105, -178, 162, -32] }, false)).toBe(false);
+		expect(sameFrame(newest, { box: [63, -126, 182.5, -76], bottom: 0, top: 1.6 }, false)).toBe(false);
+	});
+
+	it('on a part modelled in CAD keeps only a board of the same size at the same place', () => {
+		const e: PcbFacts = { box: [79, -126.75, 121, -73.25], bottom: 0, top: 1.6 };
+		expect(sameFrame(e, e, true)).toBe(true);
+		expect(sameFrame(e, { ...e, box: [80, -126.75, 122, -73.25] }, true)).toBe(false);
+		expect(sameFrame(e, { box: [63, -126, 182.5, -76], bottom: 0, top: 1.6 }, true)).toBe(false);
 	});
 });
 

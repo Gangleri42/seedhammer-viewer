@@ -113,17 +113,21 @@ function bodyFacts(measure: MeasureData, pcb: Part, frame: Mat | null): PcbFacts
 	return { box: box.map(round) as PcbFacts['box'], bottom: round(bottom), top: round(top) };
 }
 
+/** How much of the smaller outline box the overlap must cover, so that a board drawn elsewhere on the page does not fit. */
+const COVER_SMALLER = 0.8;
+
 /**
  * How an upstream board goes into a slot: as it is ({}), shifted by `fix`, or not at all (null) when the CAD board
- * is in another frame or laid out another way. The boxes need to overlap well, over more than half of the larger one,
- * since the upstream outline may have changed since the CAD board was imported; the bottom faces must agree exactly,
- * or the difference becomes the fix.
+ * is in another frame or laid out another way. The boxes need to overlap well: over more than half of the larger one,
+ * since the upstream outline may have changed since the CAD board was imported, and over most of the smaller one, as
+ * an outline grown or cut back in place does; a board drawn further along the page overlaps neither that much. The
+ * bottom faces must agree exactly, or the difference becomes the fix.
  */
 export function register(cad: PcbFacts, board: PcbFacts): { fix?: [number, number, number] } | null {
 	const [ax0, ay0, ax1, ay1] = cad.box, [bx0, by0, bx1, by1] = board.box;
 	const overlap = Math.max(0, Math.min(ax1, bx1) - Math.max(ax0, bx0)) * Math.max(0, Math.min(ay1, by1) - Math.max(ay0, by0));
-	const larger = Math.max((ax1 - ax0) * (ay1 - ay0), (bx1 - bx0) * (by1 - by0));
-	if (!(overlap > 0.5 * larger)) return null;
+	const areas = [(ax1 - ax0) * (ay1 - ay0), (bx1 - bx0) * (by1 - by0)];
+	if (!(overlap > 0.5 * Math.max(...areas)) || !(overlap >= COVER_SMALLER * Math.min(...areas))) return null;
 	const dz = Number((cad.bottom - board.bottom).toFixed(4));
 	return Math.abs(dz) < 0.001 ? {} : { fix: [0, 0, dz] };
 }
@@ -141,4 +145,13 @@ export function centre(part: PcbFacts, board: PcbFacts): { fix?: [number, number
 	const shift = [middle(part, 0) - middle(board, 0), middle(part, 1) - middle(board, 1), part.bottom - board.bottom];
 	const fix = shift.map((v) => Number(v.toFixed(4)) || 0) as [number, number, number];
 	return fix.every((v) => Math.abs(v) < 0.001) ? {} : { fix };
+}
+
+/**
+ * Whether the board `other` takes a slot just as `newest` does, so that the fit found for the newest board (one per
+ * version) holds for it too: registered as it is, or centred on a part without a shift of its own.
+ */
+export function sameFrame(newest: PcbFacts, other: PcbFacts, centred: boolean): boolean {
+	const fit = (centred ? centre : register)(newest, other);
+	return fit !== null && fit.fix === undefined;
 }

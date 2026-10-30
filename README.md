@@ -27,8 +27,9 @@ converted in the browser as stepstr does everywhere.
 
 The Seed I, the Hammer and the II each have a board in [seedhammer/hardware](https://github.com/seedhammer/hardware). Each
 revision of a board whose 3D shape changed is exported with KiCad and listed beside the model, the newest twenty of
-each. Where a version's CAD board lines up with KiCad's, the viewer shows the chosen revision in its place (`b=` in a
-link names it); otherwise the version shows its board as in CAD.
+each, less those drawn elsewhere on the KiCad page or in another shape than the newest. Where a version's CAD board
+lines up with KiCad's, the viewer shows the chosen revision in its place (`b=` in a link names it); otherwise the
+version shows its board as in CAD.
 
 ## Develop
 
