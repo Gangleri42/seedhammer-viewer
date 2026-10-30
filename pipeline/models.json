@@ -1,6 +1,6 @@
 {
 	"seed": {
-		"title": "Seed I",
+		"title": "Seed",
 		"folder": "seed",
 		"materials": [
 			{
@@ -291,6 +291,7 @@
 				"kind": "metal",
 				"roughness": 0.26,
 				"parts": [
+					"CP_Radial_D125mm_P500mm",
 					"CP_Radial_D130mm_P500mm",
 					"clamp_rod_M4",
 					"hammer_core_tube",
