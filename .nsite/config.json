@@ -10,26 +10,14 @@
 	"servers": [
 		"https://bls.unrug.tech",
 		"https://blossom.primal.net",
-		"https://nostr.download",
 		"https://cdn.hzrd149.com",
 		"https://blossom.ditto.pub",
-		"https://blossom.yakihonne.com",
 		"https://blossom.data.haus",
 		"https://blossom-01.uid.ovh",
-		"https://blossom-02.uid.ovh",
-		"https://files.sovbit.host",
 		"https://blossom.nmail.li",
-		"https://blossom.dreamith.to",
-		"https://blssm.us",
 		"https://blossom.nostr.black",
 		"https://cdn.klepak.net",
-		"https://nsite.run",
-		"https://media.libernet.app",
-		"https://blossom.jumble.social",
-		"https://blossom.band",
-		"https://blossom.nostr.build",
-		"https://24242.io",
-		"https://nostr.media"
+		"https://media.libernet.app"
 	],
 	"gatewayHostnames": ["nsite.lol"],
 	"napplet": {
