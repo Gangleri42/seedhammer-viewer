@@ -3,7 +3,7 @@ name: Pages
 # Serves the web page at the address in .nsite/config.json from GitHub Pages. The files are those of the signed site
 # manifest (kind 35128) on the relays, each checked against its sha256 as it is downloaded from a Blossom server by
 # stepstr's mirror (stepstr/pipeline/mirror-nostr.ts). Nothing is built here, so the page is byte for byte the nsite.
-# On the schedule it deploys only when the manifest's index.html differs from the one served; started by hand it always
+# On the schedule it deploys only when the address was last deployed from another manifest; started by hand it always
 # deploys. No secrets are needed: the manifest and the files are public.
 on:
   schedule:
