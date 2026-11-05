@@ -59,8 +59,4 @@ describe('board revisions', () => {
 		}
 		expect(candidates(git, parent, { file: FILE }).map((c) => c.id)).toEqual(ids);
 	});
-
-	it('start at `since`', () => {
-		expect(candidates(git, sha.docs, { file: FILE, since: '2026-09-13' }).map((c) => c.subject)).toEqual(['move L6', 'new U13 model']);
-	});
 });

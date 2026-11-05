@@ -3,9 +3,7 @@
 		"repo": "seedhammer/hardware",
 		"ref": "muscle",
 		"file": "seed/pcb/seed.kicad_pcb",
-		"since": "2026-09-01",
-		"keep": 20,
-		"slot": { "part": "PCB_back", "align": "centre" },
+		"slot": { "part": "PCB_back" },
 		"fixups": {
 			"scale": {
 				"L6": [1, 1, 0.64],
@@ -26,8 +24,6 @@
 		"repo": "seedhammer/hardware",
 		"ref": "muscle",
 		"file": "muscle/pcb/muscle.kicad_pcb",
-		"since": "2026-09-01",
-		"keep": 20,
 		"fixups": {
 			"nearest": {
 				"Package_DFN_QFN.3dshapes/VQFN-24-1EP_4x4mm_P0.5mm_EP2.45x2.45mm": "Package_DFN_QFN.3dshapes/Texas_RGE0024C_VQFN-24-1EP_4x4mm_P0.5mm_EP2.1x2.1mm",
@@ -51,8 +47,6 @@
 		"repo": "seedhammer/hardware",
 		"ref": "main",
 		"file": "mainboard/pcb/mainboard.kicad_pcb",
-		"since": "2026-07-01",
-		"keep": 20,
 		"fixups": {
 			"nearest": {
 				"Package_DFN_QFN.3dshapes/VQFN-24-1EP_4x4mm_P0.5mm_EP2.45x2.45mm": "Package_DFN_QFN.3dshapes/Texas_RGE0024C_VQFN-24-1EP_4x4mm_P0.5mm_EP2.1x2.1mm",

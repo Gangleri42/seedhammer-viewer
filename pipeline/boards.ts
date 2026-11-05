@@ -1,7 +1,7 @@
 // The board track: the upstream revisions of a model's PCB (github.com/seedhammer/hardware, KiCad), each exported
 // with kicad-cli the way the boards go into Fusion (kicad/export.ts), converted with stepstr like the enclosures and
 // published as a GLB, measurement data and zipped STEP of its own: a companion in the catalogue, which the viewer puts
-// into the enclosure's board slot (slot.ts).
+// into the enclosure's board slot (slot.ts). Every revision is listed, for every version of the model.
 //
 // A revision is a commit whose 3D inputs changed: the board file without tracks and zones (kicad/board.ts shapeText)
 // plus the repository models it uses. Its id hashes those inputs, so it survives a rebase and a KiCad upgrade;
@@ -17,8 +17,8 @@ import { libraryRefs, shapeText, type Fixups } from './kicad/board.ts';
 import { exportRevision, type Exported, type Kicad } from './kicad/export.ts';
 import { exportedRefs, nameBoard } from './kicad/tree.ts';
 import { assertPublic, publicSubject } from './privacy.ts';
-import { boardBodies, pcbFacts, sameFrame, type PartSlot, type PcbFacts } from './slot.ts';
-import { MemoryIO, zipSync, type Blob, type CompanionRevision, type CompanionTrack, type Finish, type MeasureData } from './stepstr.ts';
+import { boardBodies, type PartSlot } from './slot.ts';
+import { MemoryIO, zipSync, type Blob, type CompanionRevision, type CompanionTrack, type Finish } from './stepstr.ts';
 
 export type { Kicad };
 
@@ -26,14 +26,10 @@ export type BoardConfig = {
 	repo: string;
 	ref: string;
 	file: string;
-	/** Commits before this day (YYYY-MM-DD) are not revisions. */
-	since?: string;
-	/** How many revisions the catalogue lists, newest first. */
-	keep?: number;
 	/** The board's finishes, for every revision alike. */
 	materials?: Finish[];
 	fixups?: Fixups;
-	/** For a model whose PCB is a part modelled in CAD: that part, which the board is centred on (slot.ts). */
+	/** For a model whose PCB is a part modelled in CAD: that part (slot.ts). */
 	slot?: PartSlot;
 };
 
@@ -53,9 +49,6 @@ const NAMING = readFileSync(new URL('./kicad/tree.ts', import.meta.url), 'utf8')
 const EPOCH = '1980-01-01';
 
 export type Candidate = { sha: string; date: string; subject: string; id: string; text: string };
-
-/** What the catalogue says of a revision, and the board body's facts for registration. */
-type Built = { revision: CompanionRevision; facts: PcbFacts };
 
 /** The catalogue's limits for a note: one line of at most 300 characters, at most 8 of them. */
 const NOTE_LENGTH = 300;
@@ -107,13 +100,10 @@ function resolve(git: (...args: string[]) => string, ref: string) {
 	throw new Error(`no branch ${ref} in the board repository`);
 }
 
-/**
- * Every commit since `since` whose 3D inputs differ from the commit before, oldest first. Only `since` bounds the
- * work: each candidate is exported once and cached, and the catalogue keeps the newest `keep` of those that differ.
- */
-export function candidates(git: (...args: string[]) => string, head: string, config: Pick<BoardConfig, 'file' | 'since'>): Candidate[] {
+/** Every commit whose 3D inputs differ from the commit before, oldest first. Each is exported once and cached. */
+export function candidates(git: (...args: string[]) => string, head: string, config: Pick<BoardConfig, 'file'>): Candidate[] {
 	const boardDir = posix.dirname(config.file);
-	const log = git('log', '--reverse', '--format=%H%x09%ct%x09%s', ...(config.since ? [`--since=${config.since}T00:00:00Z`] : []), head, '--', boardDir, 'lib');
+	const log = git('log', '--reverse', '--format=%H%x09%ct%x09%s', head, '--', boardDir, 'lib');
 	const found: Candidate[] = [];
 	let previous = '';
 	for (const line of log.split('\n').filter(Boolean)) {
@@ -154,8 +144,8 @@ async function convertBoard(step: Uint8Array, name: string, conversion: string):
 	});
 }
 
-/** The revision's files, from the cache or from the converter, and what they say about the board. */
-async function convertRevision(candidate: Candidate, exported: Exported, config: BoardConfig, ctx: BoardContext): Promise<Built> {
+/** The revision's files, from the cache or from the converter. */
+async function convertRevision(candidate: Candidate, exported: Exported, config: BoardConfig, ctx: BoardContext): Promise<CompanionRevision> {
 	const zipName = `${posix.basename(config.file, '.kicad_pcb')}-${candidate.id}.step`;
 	const step = gunzipSync(readFileSync(exported.step));
 	const made = await convertBoard(step, zipName, ctx.conversion);
@@ -164,37 +154,31 @@ async function convertRevision(candidate: Candidate, exported: Exported, config:
 	if (!existsSync(zip)) writeFileSync(zip, zipSync({ [zipName]: step }, { level: 6, mtime: EPOCH }));
 
 	const parts = partsOf(gltfJson(readFileSync(made.glb)));
-	const pcbs = boardBodies(parts);
-	if (!pcbs.length) throw new Error('the export has no board body');
-	const measure: MeasureData = JSON.parse(gunzipSync(readFileSync(made.measure)).toString('utf8'));
+	if (!boardBodies(parts).length) throw new Error('the export has no board body');
 	const refs = exportedRefs(parts);
 	const notes = revisionNotes(exported.notes, exported.modelled.filter((ref) => !refs.has(ref)));
 
 	const zipped = readFileSync(zip);
 	const finishes = config.materials ?? [];
 	return {
-		revision: {
-			id: candidate.id,
-			commit: candidate.sha,
-			date: candidate.date,
-			subject: publicSubject(candidate.subject),
-			step: ctx.place(zip, { sha256: sha256(zipped), size: zipped.length }),
-			files: { glb: ctx.place(made.glb, made.summary.glb), measure: ctx.place(made.measure, made.summary.measure) },
-			...(finishes.length ? { finishes } : {}),
-			...(notes.length ? { notes } : {})
-		},
-		facts: pcbFacts(measure, pcbs, null)
+		id: candidate.id,
+		commit: candidate.sha,
+		date: candidate.date,
+		subject: publicSubject(candidate.subject),
+		step: ctx.place(zip, { sha256: sha256(zipped), size: zipped.length }),
+		files: { glb: ctx.place(made.glb, made.summary.glb), measure: ctx.place(made.measure, made.summary.measure) },
+		...(finishes.length ? { finishes } : {}),
+		...(notes.length ? { notes } : {})
 	};
 }
 
-/** A model's board track, newest revision first, with the newest board's facts for registration. */
-export async function buildBoard(key: string, config: BoardConfig, ctx: BoardContext): Promise<{ track: CompanionTrack; facts: PcbFacts | null }> {
+/** A model's board track, newest revision first. */
+export async function buildBoard(key: string, config: BoardConfig, ctx: BoardContext): Promise<CompanionTrack> {
 	const git = (...args: string[]) => execFileSync('git', ['-C', ctx.upstream, ...args], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
 	const head = resolve(git, config.ref);
 	const all = candidates(git, head, config);
 
-	// Every candidate is exported (each once, cached) to see which ones change the board in 3D; only the newest
-	// `keep` of those are converted.
+	// Every candidate is exported (each once, cached) to see which ones change the board in 3D.
 	const changed: { candidate: Candidate; exported: Exported }[] = [];
 	// Why the newest commit has no revision, when it has none: said on the track, or the viewer would quietly show an
 	// older board.
@@ -216,34 +200,20 @@ export async function buildBoard(key: string, config: BoardConfig, ctx: BoardCon
 		}
 	}
 
-	const built: Built[] = [];
+	const revisions: CompanionRevision[] = [];
 	for (const { candidate, exported } of changed.reverse()) {
-		if (built.length === (config.keep ?? 20)) break;
 		try {
-			built.push(await convertRevision(candidate, exported, config, ctx));
+			revisions.push(await convertRevision(candidate, exported, config, ctx));
 		} catch (err) {
 			skip(candidate, err);
 		}
 	}
-	// Each version's slot is fitted to the newest board (catalogue.ts), and the viewer puts whichever revision is chosen
-	// there with that fit: a revision drawn elsewhere on the page, or in another shape, would show out of place.
-	const kept = built.filter((b, i) => i === 0 || sameFrame(built[0].facts, b.facts, !!config.slot));
-	const left = built.length - kept.length;
-	if (left) console.log(`${key} board: ${left} older revision(s) left out, drawn elsewhere on the page or in another shape`);
-	const revisions = kept.map((b) => b.revision);
 	for (const note of revisions[0]?.notes ?? []) console.log(`${key} board ${revisions[0].id}: ${note}`);
-	const notes = [
-		...(failed ? [clip(failed)] : []),
-		...(left ? [left === 1
-			? 'One older revision is not listed: it is drawn elsewhere on the KiCad page than the newest, or in another shape, so it would not sit in its place.'
-			: `${left} older revisions are not listed: they are drawn elsewhere on the KiCad page than the newest, or in another shape, so they would not sit in its place.`] : [])
-	];
-	const track: CompanionTrack = {
+	return {
 		label: 'Board',
 		source: `${config.repo} ${config.ref}`,
 		latest: revisions[0]?.id ?? null,
 		revisions,
-		...(notes.length ? { notes } : {})
+		...(failed ? { notes: [clip(failed)] } : {})
 	};
-	return { track, facts: built[0]?.facts ?? null };
 }

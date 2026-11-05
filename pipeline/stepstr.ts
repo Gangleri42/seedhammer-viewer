@@ -8,7 +8,6 @@ export { convert, publishable, WASM, type Converted, type Summary } from '../ste
 export { readConfig } from '../stepstr/pipeline/nostr/config.ts';
 export { parseCatalogue } from '../stepstr/src/lib/catalogue/catalogue.ts';
 export type { Blob, Catalogue, CatalogueVersion, CompanionRevision, CompanionTrack, Finish } from '../stepstr/src/lib/catalogue/catalogue.ts';
-export type { MeasureData, SolidRecord } from '../stepstr/src/lib/measure/format.ts';
 export { partId } from '../stepstr/src/lib/pipeline/ids.ts';
 export { MemoryIO } from '../stepstr/src/lib/pipeline/memory-io.ts';
 

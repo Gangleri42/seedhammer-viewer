@@ -6,7 +6,7 @@
 // file stays on GitHub at that commit; the catalogue names it there by URL, size and sha256. Each STEP file is
 // converted once (conversions.ts), and its finishes are the rules of models.json in force for it (finishes.ts).
 // Models listed in boards.json also get their upstream board track as a companion (boards.ts), and each version
-// learns where that board goes (slot.ts).
+// names the part a board takes the place of (slot.ts).
 //
 //   HARDWARE_DIR    full clone of the hardware repository (default ../sh-hardware)
 //   UPSTREAM_DIR    full clone of the board repository (default ../seedhammer-hardware)
@@ -17,7 +17,6 @@
 import { execFileSync } from 'node:child_process';
 import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { posix } from 'node:path';
-import { gunzipSync } from 'node:zlib';
 import { buildBoard, type BoardConfig, type Kicad } from './boards.ts';
 import boardConfigs from './boards.json' with { type: 'json' };
 import { converted, conversionId, pruneConversions, type Conversion } from './conversions.ts';
@@ -27,8 +26,8 @@ import { used as usedExports } from './kicad/export.ts';
 import { kicadCommand, kicadVersion, libraryDir } from './kicad/step.ts';
 import models from './models.json' with { type: 'json' };
 import { assertPublic, publicSubject } from './privacy.ts';
-import { centre, findPart, findSlot, pcbFacts, register, type PartSlot, type PcbFacts } from './slot.ts';
-import { parseCatalogue, readConfig, type Blob, type Catalogue, type CatalogueVersion, type CompanionTrack, type MeasureData } from './stepstr.ts';
+import { findPart, findSlot, type PartSlot } from './slot.ts';
+import { parseCatalogue, readConfig, type Blob, type Catalogue, type CatalogueVersion, type CompanionTrack } from './stepstr.ts';
 import { listVersions } from './versions.ts';
 
 const HARDWARE = process.env.HARDWARE_DIR ?? '../sh-hardware';
@@ -39,12 +38,6 @@ const FILES = 'catalogue-files';
 /** The public server that answered fastest in the 2026-10-18 survey: the viewer asks the servers in this order. */
 const FASTEST = 'https://blossom.primal.net';
 const HOME = 'hammer';
-
-/**
- * Where a version's board goes: the slot's part id, and the CAD board in the slot's frame. `centred` for a part modelled
- * in CAD that the board is centred on (slot.ts centre); otherwise the board registers on KiCad's frame (register).
- */
-type Slot = { id: string; facts: PcbFacts; centred: boolean };
 
 const boards = boardConfigs as unknown as Record<string, BoardConfig>;
 
@@ -83,31 +76,20 @@ function place(path: string, pin: Blob): Blob {
 }
 const filesOf = (made: Conversion) => ({ glb: place(made.glb, made.summary.glb), measure: place(made.measure, made.summary.measure) });
 
-/**
- * Where the version's CAD board sits: the sub-assembly around its KiCad board bodies, else the part boards.json names
- * for the model. Null when it has neither.
- */
-function slotOf(key: string, id: string, made: Conversion, part?: PartSlot): Slot | null {
+/** The part a board takes the place of in this version: the sub-assembly around its KiCad board bodies, else the part boards.json names. */
+function slotOf(made: Conversion, part?: PartSlot) {
 	const parts = partsOf(gltfJson(readFileSync(made.glb)));
-	const kicadBoard = findSlot(parts);
-	const found = kicadBoard ? { slot: kicadBoard.slot, bodies: kicadBoard.pcbs } : part ? findPart(parts, part.part) : null;
-	if (!found) return null;
-	const measure: MeasureData = JSON.parse(gunzipSync(readFileSync(made.measure)).toString('utf8'));
-	try {
-		return { id: found.slot.id, facts: pcbFacts(measure, found.bodies, found.slot.world), centred: !kicadBoard };
-	} catch (err) {
-		console.warn(`${key} ${id}: no board slot, ${(err as Error).message}`);
-		return null;
-	}
+	const found = findSlot(parts) ?? (part ? findPart(parts, part.part) : null);
+	return found ? { id: found.id } : null;
 }
 
 const mb = (bytes: number) => `${(bytes / 1e6).toFixed(2)} MB`;
 const started = Date.now();
-const catalogue: Catalogue = { version: 1, conversion, servers, home: HOME, models: {} };
+const catalogue: Catalogue = { version: 2, conversion, servers, home: HOME, models: {} };
 let boardsWalked = !!kicad;
 for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 	const versions: CatalogueVersion[] = [];
-	const slots: (Slot | null)[] = [];
+	const slots: (ReturnType<typeof slotOf>)[] = [];
 	const sources = listVersions(HARDWARE, config.folder);
 	const history = [...sources].reverse();
 	const rules = followHistory(config.materials, config.commits, history);
@@ -128,7 +110,7 @@ for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 		console.log(`${key} ${source.id} (${source.path}): ${made.cached ? 'cached' : `converted in ${made.seconds.toFixed(1)} s`}, ` +
 			`${made.summary.solids} solids, ${made.summary.triangles.toLocaleString('en')} triangles, GLB ${mb(made.summary.glb.size)}, measure ${mb(made.summary.measure.size)}`);
 		for (const warning of made.summary.warnings) console.warn(`  ${warning}`);
-		if (key in boards) slots.push(slotOf(key, source.id, made, boards[key].slot));
+		if (key in boards) slots.push(slotOf(made, boards[key].slot));
 	}
 	if (!versions.length) throw new Error(`${key}: no ${config.folder}/${config.folder}.step or ${config.folder}/<Name>-v<n>.step in ${HARDWARE}`);
 
@@ -136,21 +118,9 @@ for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 	let companions: CompanionTrack | undefined;
 	if (kicad && boards[key]) {
 		try {
-			const board = await buildBoard(key, boards[key], { upstream: UPSTREAM, cache: '.cache', kicad, conversion, place });
-			companions = board.track;
-			versions.forEach((version, i) => {
-				const slot = slots[i];
-				const fit = slot && board.facts ? (slot.centred ? centre : register)(slot.facts, board.facts) : null;
-				version.slot = fit ? { id: slot!.id, ...fit } : null;
-			});
-			// Said on the track, or the viewer would quietly show the newest version's own board.
-			if (slots[0] && board.facts && !versions[0].slot) {
-				const note = `The board does not line up with the one in ${config.title} ${versions[0].id}, which shows its board as in CAD.`;
-				companions = { ...companions, notes: [...(companions.notes ?? []), note] };
-			}
-			const fitted = versions.filter((v) => v.slot).map((v) => v.id);
-			const where = !slots.some(Boolean) ? 'no version has a board slot' : fitted.length ? `it fits ${fitted.join(', ')}` : 'it lines up with no version';
-			console.log(`${key} board: ${companions.revisions.length} revision(s) of ${companions.source}, latest ${companions.latest ?? 'none'}; ${where}`);
+			companions = await buildBoard(key, boards[key], { upstream: UPSTREAM, cache: '.cache', kicad, conversion, place });
+			versions.forEach((version, i) => (version.slot = slots[i]));
+			console.log(`${key} board: ${companions.revisions.length} revision(s) of ${companions.source}, latest ${companions.latest ?? 'none'}; ${slots.filter(Boolean).length} of ${versions.length} versions have a slot`);
 		} catch (err) {
 			console.warn(`${key} board: not built, ${(err as Error).message.split('\n')[0]}`);
 			boardsWalked = false;
