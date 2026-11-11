@@ -11,7 +11,7 @@ describe('the part a board takes the place of', () => {
 		const slot = occurrence('slot01', 'muscle57', null);
 		const pcb = occurrence('pcb001', 'muscle_export_PCB', slot);
 		const parts = [frame, body('side_plate', frame), slot, pcb, body('muscle_export_PCB', pcb)];
-		expect(findSlot(parts)?.id).toBe('slot01');
+		expect(findSlot(parts, 'muscle')?.id).toBe('slot01');
 		expect(boardBodies(parts).map((p) => p.name)).toEqual(['muscle_export_PCB']);
 	});
 
@@ -19,8 +19,19 @@ describe('the part a board takes the place of', () => {
 		const slot = occurrence('slot01', 'muscle', null);
 		const other = occurrence('slot02', 'muscle', null);
 		const one = [slot, body('muscle_PCB_1', slot), body('muscle_PCB_2', slot)];
-		expect(findSlot(one)?.id).toBe('slot01');
-		expect(findSlot([...one, other, body('muscle_PCB_3', other)])).toBeNull();
+		expect(findSlot(one, 'muscle')?.id).toBe('slot01');
+		expect(findSlot([...one, other, body('muscle_PCB_3', other)], 'muscle')).toBeNull();
+	});
+
+	it("is the model's own board: the Seed's board inside the Hammer is not the Hammer's slot", () => {
+		const muscle = occurrence('slot01', 'muscle57', null);
+		const musclePcb = occurrence('pcb001', 'muscle_export_PCB', muscle);
+		const seed = occurrence('seed01', 'seed_eec5362', null);
+		const seedPcb = occurrence('pcb002', 'seed_PCB', seed);
+		const parts = [muscle, musclePcb, body('muscle_export_PCB', musclePcb), seed, seedPcb, body('seed_PCB', seedPcb), body('seed_eec5362 (1)', seed)];
+		expect(findSlot(parts, 'muscle')?.id).toBe('slot01');
+		expect(findSlot(parts, 'seed')?.id).toBe('seed01');
+		expect(findSlot(parts, 'mainboard')).toBeNull();
 	});
 
 	it('is the one occurrence of the part boards.json names, with a body below it', () => {

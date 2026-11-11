@@ -26,7 +26,7 @@ import { used as usedExports } from './kicad/export.ts';
 import { kicadCommand, kicadVersion, libraryDir } from './kicad/step.ts';
 import models from './models.json' with { type: 'json' };
 import { assertPublic, publicSubject } from './privacy.ts';
-import { findPart, findSlot, type PartSlot } from './slot.ts';
+import { findPart, findSlot } from './slot.ts';
 import { parseCatalogue, readConfig, type Blob, type Catalogue, type CatalogueVersion, type CompanionTrack } from './stepstr.ts';
 import { listVersions } from './versions.ts';
 
@@ -77,9 +77,9 @@ function place(path: string, pin: Blob): Blob {
 const filesOf = (made: Conversion) => ({ glb: place(made.glb, made.summary.glb), measure: place(made.measure, made.summary.measure) });
 
 /** The part a board takes the place of in this version: the sub-assembly around its KiCad board bodies, else the part boards.json names. */
-function slotOf(made: Conversion, part?: PartSlot) {
+function slotOf(made: Conversion, board: BoardConfig) {
 	const parts = partsOf(gltfJson(readFileSync(made.glb)));
-	const found = findSlot(parts) ?? (part ? findPart(parts, part.part) : null);
+	const found = findSlot(parts, posix.basename(board.file, '.kicad_pcb')) ?? (board.slot ? findPart(parts, board.slot.part) : null);
 	return found ? { id: found.id } : null;
 }
 
@@ -110,7 +110,7 @@ for (const [key, config] of Object.entries(models) as [string, ModelConfig][]) {
 		console.log(`${key} ${source.id} (${source.path}): ${made.cached ? 'cached' : `converted in ${made.seconds.toFixed(1)} s`}, ` +
 			`${made.summary.solids} solids, ${made.summary.triangles.toLocaleString('en')} triangles, GLB ${mb(made.summary.glb.size)}, measure ${mb(made.summary.measure.size)}`);
 		for (const warning of made.summary.warnings) console.warn(`  ${warning}`);
-		if (key in boards) slots.push(slotOf(made, boards[key].slot));
+		if (key in boards) slots.push(slotOf(made, boards[key]));
 	}
 	if (!versions.length) throw new Error(`${key}: no ${config.folder}/${config.folder}.step or ${config.folder}/<Name>-v<n>.step in ${HARDWARE}`);
 
