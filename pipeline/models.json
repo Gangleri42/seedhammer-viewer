@@ -232,7 +232,8 @@
 				"kind": "metal",
 				"roughness": 0.08,
 				"parts": [
-					"Magnet_N52_10x1.5_seed"
+					"Magnet_N52_10x1.5_seed",
+					"Magnet_N52_10x1.6_head_12x0.8_seed"
 				]
 			},
 			{
@@ -494,6 +495,7 @@
 				"parts": [
 					"Magnet_N52_10x1.5",
 					"Magnet_N52_10x1.5_seed",
+					"Magnet_N52_10x1.6_head_12x0.8_seed",
 					"Magnet_N52_5x1",
 					"Magnet_N52_10x10",
 					"Magnet_N52_4x8",
